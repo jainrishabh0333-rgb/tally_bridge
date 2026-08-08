@@ -1,1 +1,0 @@
-cd /Users/rishabhsmac/FRAPPE/tally_bridge && git remote add origin https://github.com/YOUR-USERNAME/tally_bridge.git && git push -u origin main

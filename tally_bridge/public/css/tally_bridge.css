@@ -1,0 +1,7 @@
+/* Placeholder asset.
+ *
+ * This app is backend-only (DocTypes + API, no desk UI). A v15 bench build
+ * can fail with "paths[0] must be of type string" in esbuild when an app has
+ * no public/ directory at all, so this file exists to give the asset builder
+ * a valid path. Safe to delete once real assets are added.
+ */
