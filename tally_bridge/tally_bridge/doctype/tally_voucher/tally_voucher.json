@@ -7,6 +7,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "company",
   "voucher_date",
   "voucher_type",
   "voucher_number",
@@ -25,6 +26,14 @@
   "last_synced"
  ],
  "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "search_index": 1
+  },
   {
    "fieldname": "voucher_date",
    "fieldtype": "Date",
