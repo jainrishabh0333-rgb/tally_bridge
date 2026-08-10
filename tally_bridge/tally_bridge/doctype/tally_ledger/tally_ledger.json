@@ -10,6 +10,8 @@
   "ledger_name",
   "company",
   "parent_group",
+  "primary_group",
+  "group_path",
   "column_break_main",
   "gstin",
   "bill_by_bill",
@@ -52,6 +54,22 @@
    "in_standard_filter": 1,
    "label": "Group",
    "search_index": 1
+  },
+  {
+   "fieldname": "group_path",
+   "fieldtype": "Data",
+   "label": "Group Path",
+   "read_only": 1,
+   "description": "Full chain from root to immediate group, for auditing."
+  },
+  {
+   "fieldname": "primary_group",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Primary Group",
+   "search_index": 1,
+   "description": "Resolved root group, e.g. Sundry Debtors. Reporting uses this, not the immediate group."
   },
   {
    "fieldname": "column_break_main",

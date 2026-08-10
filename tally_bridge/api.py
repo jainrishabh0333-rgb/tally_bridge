@@ -38,8 +38,14 @@ from typing import Any
 import frappe
 from frappe.utils import flt, getdate, now_datetime, add_days
 
-# Groups treated as receivable / payable. Tally's default group names; extend
-# here if your chart of accounts uses custom groups.
+# Groups treated as receivable / payable, matched against a ledger's RESOLVED
+# root group rather than its immediate parent.
+#
+# This matters: real charts of accounts nest. In this book, customers sit under
+# groups like "AGENT RK" and "Sundry Debtors Online" which are children of
+# "Sundry Debtors". Matching on the immediate parent found only 8% of
+# receivables. The sync agent walks the group tree and stores `primary_group`,
+# which is what these are compared against.
 RECEIVABLE_GROUPS = ("Sundry Debtors",)
 PAYABLE_GROUPS = ("Sundry Creditors",)
 
@@ -121,6 +127,8 @@ def upsert_ledgers(ledgers=None):
             "ledger_name": name,
             "company": company,
             "parent_group": row.get("parent") or row.get("parent_group") or "",
+            "primary_group": row.get("primary_group") or row.get("parent") or "",
+            "group_path": row.get("group_path") or "",
             "opening_balance": flt(row.get("opening_balance")),
             "closing_balance": flt(row.get("closing_balance")),
             "gstin": row.get("gstin") or "",
@@ -327,7 +335,7 @@ def compare_ledger(ledger_name=None, limit=50):
 
     rows = frappe.db.sql(
         """
-        SELECT l.company, l.ledger_name, l.parent_group,
+        SELECT l.company, l.ledger_name, l.parent_group, l.primary_group,
                l.opening_balance, l.closing_balance, l.gstin
         FROM `tabTally Ledger` l
         WHERE l.ledger_name = %(n)s
@@ -410,12 +418,14 @@ def outstanding(party_type="receivable", limit=100, min_amount=0, company=None):
     Returns positive `outstanding` amounts with an explicit `direction`.
     """
     groups = RECEIVABLE_GROUPS if party_type == "receivable" else PAYABLE_GROUPS
-    conds = ["parent_group IN %(groups)s", "ABS(closing_balance) > %(min_amount)s"]
+    conds = ["COALESCE(NULLIF(primary_group, ''), parent_group) IN %(groups)s",
+             "ABS(closing_balance) > %(min_amount)s"]
     params = {"groups": groups, "min_amount": flt(min_amount), "limit": _limit(limit)}
     _company_clause(company, conds, params)
     rows = frappe.db.sql(
         f"""
-        SELECT company, ledger_name, parent_group, closing_balance, gstin, email, phone
+        SELECT company, ledger_name, parent_group, primary_group, group_path,
+               closing_balance, gstin, email, phone
         FROM `tabTally Ledger`
         WHERE {' AND '.join(conds)}
         ORDER BY ABS(closing_balance) DESC
@@ -431,6 +441,7 @@ def outstanding(party_type="receivable", limit=100, min_amount=0, company=None):
             "party": r.ledger_name,
             "company": r.company,
             "group": r.parent_group,
+            "primary_group": r.primary_group,
             "outstanding": abs(bal),
             "direction": "owes_us" if bal > 0 else "we_owe",
             "gstin": r.gstin,
@@ -462,8 +473,8 @@ def ledger_statement(ledger=None, from_date=None, to_date=None, limit=500, compa
         mfilter["company"] = company
     matches = frappe.get_all(
         "Tally Ledger", filters=mfilter,
-        fields=["name", "company", "ledger_name", "parent_group",
-                "opening_balance", "closing_balance"],
+        fields=["name", "company", "ledger_name", "parent_group", "primary_group",
+                "group_path", "opening_balance", "closing_balance"],
         limit=20,
     )
     if len(matches) > 1:
@@ -533,6 +544,8 @@ def ledger_statement(ledger=None, from_date=None, to_date=None, limit=500, compa
         "ledger": master.ledger_name,
         "company": master.company,
         "group": master.parent_group,
+        "primary_group": master.primary_group,
+        "group_path": master.group_path,
         "opening_balance": flt(master.opening_balance),
         "closing_balance": flt(master.closing_balance),
         "period": {"from": str(from_date or ""), "to": str(to_date or "")},
@@ -584,20 +597,21 @@ def trial_balance(group=None, company=None):
     conds = []
     params: dict[str, Any] = {}
     if group:
-        conds.append("parent_group = %(group)s")
+        conds.append("COALESCE(NULLIF(primary_group, ''), parent_group) = %(group)s")
         params["group"] = group
     _company_clause(company, conds, params)
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
 
     rows = frappe.db.sql(
         f"""
-        SELECT company, parent_group AS `group`,
+        SELECT company,
+               COALESCE(NULLIF(primary_group, ''), parent_group) AS `group`,
                COUNT(*) AS ledger_count,
                SUM(CASE WHEN closing_balance > 0 THEN closing_balance ELSE 0 END) AS debit,
                SUM(CASE WHEN closing_balance < 0 THEN -closing_balance ELSE 0 END) AS credit
         FROM `tabTally Ledger`
         {where}
-        GROUP BY company, parent_group
+        GROUP BY company, COALESCE(NULLIF(primary_group, ''), parent_group)
         HAVING debit <> 0 OR credit <> 0
         ORDER BY (debit + credit) DESC
         """,
@@ -647,6 +661,50 @@ def summary_by_voucher_type(from_date=None, to_date=None, company=None):
 
 
 @frappe.whitelist(methods=["GET"])
+def group_summary(company=None, root=None, limit=200):
+    """
+    Ledger groups with their totals, mirroring Tally's Group Summary.
+
+    Rolls up by the RESOLVED root group, so sub-groups such as "AGENT RK" are
+    counted inside "Sundry Debtors" exactly as Tally reports them. Use this to
+    reconcile against Tally's own Group Summary screen.
+    """
+    conds = []
+    params = {"limit": _limit(limit, 200)}
+    _company_clause(company, conds, params)
+    if root:
+        conds.append("COALESCE(NULLIF(primary_group, ''), parent_group) = %(root)s")
+        params["root"] = root
+    where = f"WHERE {' AND '.join(conds)}" if conds else ""
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT company,
+               COALESCE(NULLIF(primary_group, ''), parent_group) AS root_group,
+               parent_group AS sub_group,
+               COUNT(*) AS ledger_count,
+               SUM(CASE WHEN closing_balance > 0 THEN closing_balance ELSE 0 END) AS debit,
+               SUM(CASE WHEN closing_balance < 0 THEN -closing_balance ELSE 0 END) AS credit
+        FROM `tabTally Ledger`
+        {where}
+        GROUP BY company, root_group, sub_group
+        HAVING debit <> 0 OR credit <> 0
+        ORDER BY root_group ASC, (debit + credit) DESC
+        LIMIT %(limit)s
+        """,
+        params, as_dict=True,
+    )
+    return {
+        "count": len(rows),
+        "total_debit": round(sum(flt(r.debit) for r in rows), 2),
+        "total_credit": round(sum(flt(r.credit) for r in rows), 2),
+        "note": ("Debit is positive, matching Tally's Group Summary. Compare "
+                 "these figures directly against that screen in Tally."),
+        "rows": rows,
+    }
+
+
+@frappe.whitelist(methods=["GET"])
 def search_ledgers(query=None, limit=25, company=None):
     """Fuzzy ledger lookup — lets Claude resolve 'Acme' to the real name."""
     if not query:
@@ -656,7 +714,7 @@ def search_ledgers(query=None, limit=25, company=None):
     _company_clause(company, conds, params)
     rows = frappe.db.sql(
         f"""
-        SELECT company, ledger_name, parent_group, closing_balance, gstin
+        SELECT company, ledger_name, parent_group, primary_group, closing_balance, gstin
         FROM `tabTally Ledger`
         WHERE {' AND '.join(conds)}
         ORDER BY ABS(closing_balance) DESC
