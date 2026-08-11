@@ -115,7 +115,7 @@
    "fieldname": "email",
    "fieldtype": "Data",
    "label": "Email",
-   "options": "Email"
+   "description": "Whatever Tally holds, unvalidated. This is a mirror: if Tally accepted it, we store it."
   },
   {
    "fieldname": "column_break_contact",

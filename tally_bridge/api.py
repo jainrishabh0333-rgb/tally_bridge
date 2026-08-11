@@ -115,8 +115,16 @@ def upsert_ledgers(ledgers=None):
     rows = _parse_payload(ledgers, "ledgers")
     stamp = now_datetime()
     created = updated = skipped = 0
+    errors: list = []
 
     for row in rows:
+      # Real books contain data Frappe's validators dislike — an email field
+      # holding a bare domain, a name with odd characters. One such row must
+      # not take down the other 499 in the batch, so each is isolated and the
+      # failures are reported back for the agent to log.
+      savepoint = f"row_{created + updated + skipped + len(errors)}"
+      try:
+        frappe.db.savepoint(savepoint)
         name = (row.get("name") or "").strip()
         if not name:
             continue
@@ -156,9 +164,22 @@ def upsert_ledgers(ledgers=None):
             doc.name = docname
             doc.insert(ignore_permissions=True)
             created += 1
+        frappe.db.release_savepoint(savepoint)
+      except Exception as exc:
+        frappe.db.rollback(save_point=savepoint)
+        if len(errors) < 50:
+            errors.append({
+                "ledger": (row.get("name") or "")[:140],
+                "company": (row.get("company") or "")[:140],
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+            })
 
     frappe.db.commit()
-    return {"created": created, "updated": updated, "unchanged": skipped}
+    out = {"created": created, "updated": updated, "unchanged": skipped}
+    if errors:
+        out["failed"] = len(errors)
+        out["errors"] = errors
+    return out
 
 
 @frappe.whitelist(methods=["POST"])
@@ -174,8 +195,14 @@ def upsert_vouchers(vouchers=None):
     rows = _parse_payload(vouchers, "vouchers")
     stamp = now_datetime()
     created = updated = skipped = 0
+    errors: list = []
 
     for row in rows:
+      # Isolated per voucher for the same reason as ledgers: one malformed
+      # record must not discard the rest of the batch.
+      savepoint = f"vch_{created + updated + skipped + len(errors)}"
+      try:
+        frappe.db.savepoint(savepoint)
         guid = (row.get("guid") or "").strip()
         if not guid:
             continue
@@ -224,9 +251,23 @@ def upsert_vouchers(vouchers=None):
             doc.save(ignore_permissions=True)
         else:
             doc.insert(ignore_permissions=True)
+        frappe.db.release_savepoint(savepoint)
+      except Exception as exc:
+        frappe.db.rollback(save_point=savepoint)
+        if len(errors) < 50:
+            errors.append({
+                "voucher": f"{row.get('voucher_type') or ''} {row.get('voucher_number') or ''}".strip()[:140],
+                "date": str(row.get("date") or row.get("voucher_date") or "")[:20],
+                "company": (row.get("company") or "")[:140],
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+            })
 
     frappe.db.commit()
-    return {"created": created, "updated": updated, "unchanged": skipped}
+    out = {"created": created, "updated": updated, "unchanged": skipped}
+    if errors:
+        out["failed"] = len(errors)
+        out["errors"] = errors
+    return out
 
 
 @frappe.whitelist(methods=["POST"])
