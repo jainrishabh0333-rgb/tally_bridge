@@ -81,12 +81,13 @@ def _company_clause(company, conds: list, params: dict, col: str = "company") ->
             company = parsed if isinstance(parsed, list) else company
         except ValueError:
             pass
-    if isinstance(company, (list, tuple)) and company:
-        conds.append(f"{col} IN %(company)s")
-        params["company"] = tuple(company)
-    else:
-        conds.append(f"{col} = %(company)s")
-        params["company"] = company
+    if isinstance(company, (list, tuple)):
+        if company:
+            conds.append(f"{col} IN %(company)s")
+            params["company"] = tuple(company)
+        return  # empty list means no filter, not 'equal to nothing'
+    conds.append(f"{col} = %(company)s")
+    params["company"] = company
 
 
 # ===========================================================================
@@ -97,6 +98,19 @@ def _require_writer():
     """Ingestion is privileged: only System Manager may write mirrored data."""
     if "System Manager" not in frappe.get_roles():
         frappe.throw("Not permitted: sync user needs the System Manager role.", frappe.PermissionError)
+
+
+def _require_reader():
+    """
+    Analytics run raw SQL, which bypasses DocType permissions entirely — so
+    gate them on the same roles the DocTypes grant read to. Without this, any
+    authenticated user (a future portal signup, say) could pull the entire
+    receivables list with contact details.
+    """
+    roles = frappe.get_roles()
+    if "System Manager" not in roles and "Accounts User" not in roles:
+        frappe.throw("Not permitted: reading Tally data needs the Accounts User role.",
+                     frappe.PermissionError)
 
 
 def _parse_payload(value, key: str) -> list[dict]:
@@ -117,17 +131,17 @@ def upsert_ledgers(ledgers=None):
     created = updated = skipped = 0
     errors: list = []
 
-    for row in rows:
+    for i, row in enumerate(rows):
+      name = (row.get("name") or "").strip()
+      if not name:
+          continue
       # Real books contain data Frappe's validators dislike — an email field
       # holding a bare domain, a name with odd characters. One such row must
       # not take down the other 499 in the batch, so each is isolated and the
       # failures are reported back for the agent to log.
-      savepoint = f"row_{created + updated + skipped + len(errors)}"
+      savepoint = f"row_{i}"
       try:
         frappe.db.savepoint(savepoint)
-        name = (row.get("name") or "").strip()
-        if not name:
-            continue
         company = (row.get("company") or "").strip()
         docname = _ledger_docname(company, name, row.get("guid"))
 
@@ -166,7 +180,18 @@ def upsert_ledgers(ledgers=None):
             created += 1
         frappe.db.release_savepoint(savepoint)
       except Exception as exc:
-        frappe.db.rollback(save_point=savepoint)
+        try:
+            frappe.db.rollback(save_point=savepoint)
+        except Exception:
+            # A deadlock or dropped connection destroys every savepoint. Keep
+            # what committed, report the rest as failed, stop cleanly.
+            frappe.db.rollback()
+            errors.append({"ledger": (row.get("name") or "")[:140],
+                           "error": f"{type(exc).__name__}: {exc}"[:300]})
+            errors.append({"ledger": "(batch stopped)",
+                           "error": "transaction was rolled back by the database; "
+                                    "remaining rows in this batch were not attempted"})
+            break
         if len(errors) < 50:
             errors.append({
                 "ledger": (row.get("name") or "")[:140],
@@ -197,16 +222,15 @@ def upsert_vouchers(vouchers=None):
     created = updated = skipped = 0
     errors: list = []
 
-    for row in rows:
+    for i, row in enumerate(rows):
+      guid = (row.get("guid") or "").strip()
+      if not guid:
+          continue
       # Isolated per voucher for the same reason as ledgers: one malformed
       # record must not discard the rest of the batch.
-      savepoint = f"vch_{created + updated + skipped + len(errors)}"
+      savepoint = f"vch_{i}"
       try:
         frappe.db.savepoint(savepoint)
-        guid = (row.get("guid") or "").strip()
-        if not guid:
-            continue
-
         alter_id = row.get("alter_id") or ""
         existing = frappe.db.get_value(
             "Tally Voucher", {"guid": guid}, ["name", "alter_id"], as_dict=True
@@ -234,10 +258,8 @@ def upsert_vouchers(vouchers=None):
             doc = frappe.get_doc("Tally Voucher", existing.name)
             doc.update(fields)
             doc.set("entries", [])
-            updated += 1
         else:
             doc = frappe.get_doc({"doctype": "Tally Voucher", "guid": guid, **fields})
-            created += 1
 
         for e in entries:
             doc.append("entries", {
@@ -249,11 +271,22 @@ def upsert_vouchers(vouchers=None):
         doc.flags.ignore_permissions = True
         if existing:
             doc.save(ignore_permissions=True)
+            updated += 1
         else:
             doc.insert(ignore_permissions=True)
+            created += 1
         frappe.db.release_savepoint(savepoint)
       except Exception as exc:
-        frappe.db.rollback(save_point=savepoint)
+        try:
+            frappe.db.rollback(save_point=savepoint)
+        except Exception:
+            frappe.db.rollback()
+            errors.append({"voucher": guid[:140],
+                           "error": f"{type(exc).__name__}: {exc}"[:300]})
+            errors.append({"voucher": "(batch stopped)",
+                           "error": "transaction was rolled back by the database; "
+                                    "remaining rows in this batch were not attempted"})
+            break
         if len(errors) < 50:
             errors.append({
                 "voucher": f"{row.get('voucher_type') or ''} {row.get('voucher_number') or ''}".strip()[:140],
@@ -305,6 +338,16 @@ def get_sync_state(company=None):
     Each company file keeps its own high-water mark, so a newly added year
     starts from scratch instead of inheriting another year's progress.
     """
+    _require_reader()
+    # Normalise: a JSON-encoded single-element list means that one company.
+    if isinstance(company, str) and company.startswith("["):
+        try:
+            parsed = json.loads(company)
+            if isinstance(parsed, list):
+                company = parsed[0] if len(parsed) == 1 else parsed
+        except ValueError:
+            pass
+
     conds, params = [], {}
     _company_clause(company, conds, params)
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
@@ -315,9 +358,12 @@ def get_sync_state(company=None):
 
     log_filter = {"status": "Success"}
     count_filter = {}
-    if company and isinstance(company, str):
+    if isinstance(company, str) and company:
         log_filter["company"] = company
         count_filter["company"] = company
+    elif isinstance(company, (list, tuple)) and company:
+        log_filter["company"] = ["in", list(company)]
+        count_filter["company"] = ["in", list(company)]
     last_success = frappe.db.get_value(
         "Tally Sync Log", log_filter, "sync_time", order_by="sync_time desc",
     )
@@ -338,6 +384,7 @@ def companies():
     Claude should call this before any year-on-year question so it knows which
     company names exist and which period each one covers.
     """
+    _require_reader()
     rows = frappe.db.sql(
         """
         SELECT company,
@@ -371,6 +418,7 @@ def compare_ledger(ledger_name=None, limit=50):
     ledger name is matched across company files, so you can see how a party's
     balance and activity moved from one financial year to the next.
     """
+    _require_reader()
     if not ledger_name:
         frappe.throw("`ledger_name` is required")
 
@@ -458,6 +506,7 @@ def outstanding(party_type="receivable", limit=100, min_amount=0, company=None):
     party_type: "receivable" (Sundry Debtors) or "payable" (Sundry Creditors).
     Returns positive `outstanding` amounts with an explicit `direction`.
     """
+    _require_reader()
     groups = RECEIVABLE_GROUPS if party_type == "receivable" else PAYABLE_GROUPS
     conds = ["COALESCE(NULLIF(primary_group, ''), parent_group) IN %(groups)s",
              "ABS(closing_balance) > %(min_amount)s"]
@@ -505,6 +554,7 @@ def outstanding(party_type="receivable", limit=100, min_amount=0, company=None):
 @frappe.whitelist(methods=["GET"])
 def ledger_statement(ledger=None, from_date=None, to_date=None, limit=500, company=None):
     """Every transaction hitting one ledger, with a running balance."""
+    _require_reader()
     if not ledger:
         frappe.throw("`ledger` is required")
 
@@ -599,6 +649,7 @@ def ledger_statement(ledger=None, from_date=None, to_date=None, limit=500, compa
 @frappe.whitelist(methods=["GET"])
 def day_book(from_date=None, to_date=None, voucher_type=None, party=None, limit=200, company=None):
     """Vouchers in a date range — the 'what happened' query."""
+    _require_reader()
     conds = ["is_cancelled = 0"]
     params: dict[str, Any] = {"limit": _limit(limit, 200)}
     if from_date:
@@ -635,6 +686,7 @@ def day_book(from_date=None, to_date=None, voucher_type=None, party=None, limit=
 @frappe.whitelist(methods=["GET"])
 def trial_balance(group=None, company=None):
     """Closing balances rolled up by ledger group."""
+    _require_reader()
     conds = []
     params: dict[str, Any] = {}
     if group:
@@ -674,6 +726,7 @@ def trial_balance(group=None, company=None):
 @frappe.whitelist(methods=["GET"])
 def summary_by_voucher_type(from_date=None, to_date=None, company=None):
     """Volume and value per voucher type — the shape of the period."""
+    _require_reader()
     conds = ["is_cancelled = 0"]
     params: dict[str, Any] = {}
     if from_date:
@@ -710,6 +763,7 @@ def group_summary(company=None, root=None, limit=200):
     counted inside "Sundry Debtors" exactly as Tally reports them. Use this to
     reconcile against Tally's own Group Summary screen.
     """
+    _require_reader()
     conds = []
     params = {"limit": _limit(limit, 200)}
     _company_clause(company, conds, params)
@@ -748,6 +802,7 @@ def group_summary(company=None, root=None, limit=200):
 @frappe.whitelist(methods=["GET"])
 def search_ledgers(query=None, limit=25, company=None):
     """Fuzzy ledger lookup — lets Claude resolve 'Acme' to the real name."""
+    _require_reader()
     if not query:
         frappe.throw("`query` is required")
     conds = ["ledger_name LIKE %(q)s"]
@@ -777,6 +832,7 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
     sync or an XML export that dropped entries — worth investigating before
     trusting any downstream report.
     """
+    _require_reader()
     conds = ["v.is_cancelled = 0"]
     params: dict[str, Any] = {"tol": flt(tolerance), "limit": _limit(limit, 100)}
     if from_date:
@@ -814,6 +870,7 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
 @frappe.whitelist(methods=["GET"])
 def sync_health():
     """Is the mirror fresh and complete? Claude should check this first."""
+    _require_reader()
     state = get_sync_state()
     last_log = frappe.db.get_value(
         "Tally Sync Log", {}, ["name", "status", "sync_time", "vouchers_synced", "detail"],
