@@ -868,6 +868,45 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
 
 
 @frappe.whitelist(methods=["GET"])
+def recent_failures(limit=5):
+    """
+    The last few failed sync runs, with the error each reported.
+
+    Exists so a diagnosis does not require the write-capable key: when a sync
+    fails, the read-only side can see WHY without escalating privileges.
+    """
+    _require_reader()
+    rows = frappe.db.sql(
+        """
+        SELECT name, sync_time, company, status, ledgers_synced,
+               vouchers_synced, date_range, detail
+        FROM `tabTally Sync Log`
+        WHERE status IN ('Failed', 'Partial')
+        ORDER BY sync_time DESC
+        LIMIT %(limit)s
+        """,
+        {"limit": _limit(limit, 5)}, as_dict=True,
+    )
+    out = []
+    for r in rows:
+        error = ""
+        try:
+            error = (json.loads(r.detail or "{}") or {}).get("error", "")
+        except ValueError:
+            error = (r.detail or "")[:500]
+        out.append({
+            "sync_time": str(r.sync_time),
+            "company": r.company,
+            "status": r.status,
+            "date_range": r.date_range,
+            "ledgers_synced": r.ledgers_synced,
+            "vouchers_synced": r.vouchers_synced,
+            "error": str(error)[:800],
+        })
+    return {"count": len(out), "rows": out}
+
+
+@frappe.whitelist(methods=["GET"])
 def sync_health():
     """Is the mirror fresh and complete? Claude should check this first."""
     _require_reader()
