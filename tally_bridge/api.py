@@ -64,23 +64,31 @@ def _bucket(days: int) -> str:
     return "180+"
 
 
-def _ledger_docname(company: str, ledger_name: str, guid: str = "") -> str:
+def _docname(company: str, natural_key: str, guid: str = "") -> str:
     """
-    Stable, collision-free primary key for a ledger.
+    Collision-free primary key, ALWAYS scoped to the company file.
 
-    Tally's GUID is unique per company file, so the same party in two financial
-    years gets two rows — which is what makes year-on-year comparison possible.
-    Falls back to company::name when a GUID is missing, hashing the tail if the
-    pair would exceed Frappe's 140-character name limit.
+    Tally GUIDs are NOT unique across company files. When a year is carried
+    forward, ledgers keep the GUID they had in the previous year — so keying
+    on the GUID alone made the (25-26) sync overwrite 633 rows belonging to
+    (26-27), replacing this year's balances with last year's under the wrong
+    label. Silent, and invisible in any single query.
+
+    The company prefix is therefore mandatory, never optional. The GUID is
+    still preferred WITHIN a company because it survives a rename; the name is
+    the fallback when Tally omits it.
     """
-    guid = (guid or "").strip()
-    if guid:
-        return guid
-    key = f"{company}::{ledger_name}"
+    tail = (guid or "").strip() or natural_key
+    key = f"{company}::{tail}"
     if len(key) <= 140:
         return key
-    digest = hashlib.md5(ledger_name.encode("utf-8")).hexdigest()[:16]
+    # Hash only the tail so the company stays readable in the docname.
+    digest = hashlib.md5(tail.encode("utf-8")).hexdigest()[:16]
     return f"{company[:100]}::{digest}"
+
+
+# Kept as an alias: several call sites read better as "ledger docname".
+_ledger_docname = _docname
 
 
 def _company_clause(company, conds: list, params: dict, col: str = "company") -> None:
@@ -244,8 +252,10 @@ def upsert_vouchers(vouchers=None):
       try:
         frappe.db.savepoint(savepoint)
         alter_id = row.get("alter_id") or ""
+        company_name = (row.get("company") or "").strip()
         existing = frappe.db.get_value(
-            "Tally Voucher", {"guid": guid}, ["name", "alter_id"], as_dict=True
+            "Tally Voucher", {"guid": guid, "company": company_name},
+            ["name", "alter_id"], as_dict=True,
         )
 
         if existing and alter_id and existing.alter_id == alter_id:
@@ -272,6 +282,9 @@ def upsert_vouchers(vouchers=None):
             doc.set("entries", [])
         else:
             doc = frappe.get_doc({"doctype": "Tally Voucher", "guid": guid, **fields})
+            # Same company-scoping rule as ledgers: a voucher GUID can repeat
+            # across company files when a year is carried forward.
+            doc.name = _docname(fields["company"], guid, guid)
 
         for e in entries:
             doc.append("entries", {

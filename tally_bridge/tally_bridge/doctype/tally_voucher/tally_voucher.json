@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 0,
- "autoname": "field:guid",
+ "autoname": "Prompt",
  "creation": "2026-08-08 00:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -113,7 +113,7 @@
    "label": "Tally GUID",
    "read_only": 1,
    "reqd": 1,
-   "unique": 1
+   "search_index": 1
   },
   {
    "fieldname": "column_break_meta",
