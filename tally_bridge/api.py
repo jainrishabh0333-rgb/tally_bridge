@@ -705,7 +705,7 @@ def trial_balance(group=None, company=None):
         FROM `tabTally Ledger`
         {where}
         GROUP BY company, COALESCE(NULLIF(primary_group, ''), parent_group)
-        HAVING debit <> 0 OR credit <> 0
+        HAVING SUM(CASE WHEN closing_balance > 0 THEN closing_balance ELSE 0 END) <> 0 OR SUM(CASE WHEN closing_balance < 0 THEN -closing_balance ELSE 0 END) <> 0
         ORDER BY (debit + credit) DESC
         """,
         params, as_dict=True,
@@ -783,7 +783,7 @@ def group_summary(company=None, root=None, limit=200):
         FROM `tabTally Ledger`
         {where}
         GROUP BY company, root_group, sub_group
-        HAVING debit <> 0 OR credit <> 0
+        HAVING SUM(CASE WHEN closing_balance > 0 THEN closing_balance ELSE 0 END) <> 0 OR SUM(CASE WHEN closing_balance < 0 THEN -closing_balance ELSE 0 END) <> 0
         ORDER BY root_group ASC, (debit + credit) DESC
         LIMIT %(limit)s
         """,
