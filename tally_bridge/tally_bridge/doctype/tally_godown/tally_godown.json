@@ -1,0 +1,91 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "Prompt",
+ "creation": "2026-08-11 00:00:00.000000",
+ "doctype": "DocType",
+ "description": "Storage locations. These usually mirror the physical units.",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "godown_name",
+  "company",
+  "parent_godown",
+  "is_external",
+  "guid",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "godown_name",
+   "fieldtype": "Data",
+   "label": "Godown",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "parent_godown",
+   "fieldtype": "Data",
+   "label": "Parent Godown"
+  },
+  {
+   "fieldname": "is_external",
+   "fieldtype": "Check",
+   "label": "External"
+  },
+  {
+   "fieldname": "guid",
+   "fieldtype": "Data",
+   "label": "Tally GUID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Godown",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "title_field": "godown_name"
+}

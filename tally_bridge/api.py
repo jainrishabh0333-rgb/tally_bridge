@@ -393,6 +393,102 @@ def upsert_bills(bills=None, company=None, replace=1):
     return out
 
 
+def _upsert_simple(doctype: str, rows: list, company: str, key_field: str,
+                   mapping: dict, stamp) -> dict:
+    """
+    Replace a company's rows for a small master table.
+
+    Masters are snapshots — an item deleted in Tally should disappear here —
+    and these tables are small enough (units, godowns, groups, items) that a
+    clean replace is simpler and safer than diffing.
+    """
+    if company:
+        frappe.db.delete(doctype, {"company": company})
+    created = 0
+    errors: list = []
+    for i, row in enumerate(rows):
+        name = (row.get("name") or "").strip()
+        if not name:
+            continue
+        savepoint = f"m_{i}"
+        try:
+            frappe.db.savepoint(savepoint)
+            values = {"doctype": doctype, key_field: name,
+                      "company": (row.get("company") or company or "").strip(),
+                      "last_synced": stamp}
+            for dest, src in mapping.items():
+                v = row.get(src)
+                values[dest] = v if v is not None else ""
+            doc = frappe.get_doc(values)
+            doc.name = _ledger_docname(values["company"], name, row.get("guid"))
+            doc.insert(ignore_permissions=True)
+            created += 1
+            frappe.db.release_savepoint(savepoint)
+        except Exception as exc:
+            try:
+                frappe.db.rollback(save_point=savepoint)
+            except Exception:
+                frappe.db.rollback()
+                break
+            if len(errors) < 50:
+                errors.append({"row": name[:140],
+                               "error": f"{type(exc).__name__}: {exc}"[:300]})
+    frappe.db.commit()
+    out = {"created": created}
+    if errors:
+        out["failed"] = len(errors)
+        out["errors"] = errors
+    return out
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_inventory(units=None, godowns=None, stock_groups=None,
+                     stock_items=None, company=None):
+    """
+    Replace the inventory master snapshot for one company.
+
+    Units first: their conversion table is what makes every quantity in the
+    domain interpretable, and the agent resolves compound quantities before
+    sending, so this only stores the result plus the raw string for audit.
+    """
+    _require_writer()
+    stamp = now_datetime()
+    out = {}
+
+    if units is not None:
+        out["units"] = _upsert_simple(
+            "Tally Unit", _parse_payload(units, "units"), company, "unit_name",
+            {"formal_name": "formal_name", "base_units": "base_units",
+             "conversion": "conversion", "guid": "guid"}, stamp)
+    if godowns is not None:
+        out["godowns"] = _upsert_simple(
+            "Tally Godown", _parse_payload(godowns, "godowns"), company,
+            "godown_name", {"parent_godown": "parent", "guid": "guid"}, stamp)
+    if stock_groups is not None:
+        out["stock_groups"] = _upsert_simple(
+            "Tally Stock Group", _parse_payload(stock_groups, "stock_groups"),
+            company, "group_name",
+            {"parent_group": "parent", "primary_group": "primary_group",
+             "guid": "guid"}, stamp)
+    if stock_items is not None:
+        out["stock_items"] = _upsert_simple(
+            "Tally Stock Item", _parse_payload(stock_items, "stock_items"),
+            company, "item_name",
+            {"stock_group": "parent", "primary_group": "primary_group",
+             "category": "category", "part_no": "part_no",
+             "base_units": "base_units", "additional_units": "additional_units",
+             "conversion": "conversion",
+             "closing_qty": "closing_qty", "closing_qty_unit": "closing_qty_unit",
+             "closing_qty_raw": "closing_qty_raw",
+             "closing_rate": "closing_rate", "closing_rate_unit": "closing_rate_unit",
+             "closing_value": "closing_value", "costing_method": "costing_method",
+             "hsn_code": "hsn_code", "hsn_description": "hsn_description",
+             "gst_rate": "gst_rate", "taxability": "taxability",
+             "is_batchwise": "is_batchwise", "guid": "guid",
+             "alter_id": "alter_id"}, stamp)
+    return out
+
+
 @frappe.whitelist(methods=["POST"])
 def log_sync(status=None, detail=None):
     """Record a sync run so failures are visible without SSHing anywhere."""
@@ -887,6 +983,115 @@ def group_summary(company=None, root=None, limit=200):
                  "these figures directly against that screen in Tally."),
         "rows": rows,
     }
+
+
+@frappe.whitelist(methods=["GET"])
+def search_items(query=None, company=None, group=None, limit=25):
+    """
+    Find products by partial name, part number or HSN code.
+
+    Resolves an informal name ("the thermal vest", "402") to the exact item
+    name before any item-level question.
+    """
+    _require_reader()
+    if not query:
+        frappe.throw("`query` is required")
+    conds = ["(item_name LIKE %(q)s OR part_no LIKE %(q)s OR hsn_code LIKE %(q)s)"]
+    params = {"q": f"%{query}%", "limit": _limit(limit, 25)}
+    _company_clause(company, conds, params)
+    if group:
+        conds.append("stock_group = %(group)s")
+        params["group"] = group
+    rows = frappe.db.sql(
+        f"""
+        SELECT company, item_name, stock_group, part_no, base_units,
+               closing_qty, closing_qty_unit, closing_qty_raw,
+               closing_value, hsn_code, gst_rate
+        FROM `tabTally Stock Item`
+        WHERE {' AND '.join(conds)}
+        ORDER BY closing_value DESC
+        LIMIT %(limit)s
+        """,
+        params, as_dict=True,
+    )
+    return {"count": len(rows),
+            "distinct_names": sorted({r["item_name"] for r in rows}),
+            "rows": rows}
+
+
+@frappe.whitelist(methods=["GET"])
+def stock_summary(company=None, group=None, by="group", limit=100):
+    """
+    Closing stock by product family or by item — what we are holding.
+
+    Value is authoritative; quantity is only meaningful within one unit, so
+    quantities are NOT summed across items measured differently.
+    """
+    _require_reader()
+    conds = ["closing_value <> 0"]
+    params = {"limit": _limit(limit, 100)}
+    _company_clause(company, conds, params)
+    if group:
+        conds.append("stock_group = %(group)s")
+        params["group"] = group
+    col = "stock_group" if by == "group" else "item_name"
+    rows = frappe.db.sql(
+        f"""
+        SELECT company, {col} AS name, COUNT(*) AS items,
+               SUM(closing_value) AS value,
+               COUNT(DISTINCT closing_qty_unit) AS unit_variants,
+               MIN(closing_qty_unit) AS unit,
+               SUM(closing_qty) AS qty
+        FROM `tabTally Stock Item`
+        WHERE {' AND '.join(conds)}
+        GROUP BY company, {col}
+        ORDER BY value DESC
+        LIMIT %(limit)s
+        """,
+        params, as_dict=True,
+    )
+    for r in rows:
+        # A summed quantity is nonsense when the rows use different units.
+        if int(r.get("unit_variants") or 0) > 1:
+            r["qty"] = None
+            r["qty_note"] = "mixed units — not summable"
+    return {
+        "by": by,
+        "count": len(rows),
+        "total_value": round(sum(flt(r["value"]) for r in rows), 2),
+        "note": ("Stock value is as at the last sync. Never add stock across "
+                 "the financial-year company files — the same goods appear in "
+                 "each."),
+        "rows": rows,
+    }
+
+
+@frappe.whitelist(methods=["GET"])
+def hsn_gaps(company=None, limit=200):
+    """
+    Items carrying stock but no HSN code — a live GST filing exposure.
+
+    Worth surfacing without being asked: an item invoiced without an HSN code
+    is a compliance problem long before anyone notices it on a return.
+    """
+    _require_reader()
+    conds = ["(hsn_code IS NULL OR hsn_code = '')", "closing_value <> 0"]
+    params = {"limit": _limit(limit, 200)}
+    _company_clause(company, conds, params)
+    rows = frappe.db.sql(
+        f"""
+        SELECT company, item_name, stock_group, closing_qty_raw, closing_value
+        FROM `tabTally Stock Item`
+        WHERE {' AND '.join(conds)}
+        ORDER BY closing_value DESC
+        LIMIT %(limit)s
+        """,
+        params, as_dict=True,
+    )
+    return {"count": len(rows),
+            "value_at_risk": round(sum(flt(r["closing_value"]) for r in rows), 2),
+            "note": "Items holding stock with no HSN code recorded.",
+            "rows": rows}
 
 
 @frappe.whitelist(methods=["GET"])

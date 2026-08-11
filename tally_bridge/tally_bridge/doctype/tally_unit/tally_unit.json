@@ -1,0 +1,107 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "Prompt",
+ "creation": "2026-08-11 00:00:00.000000",
+ "doctype": "DocType",
+ "description": "Units of measure. The conversion table is what makes compound quantities such as '3 Dzn 6 Pcs' interpretable.",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "unit_name",
+  "company",
+  "formal_name",
+  "is_simple",
+  "base_units",
+  "conversion",
+  "guid",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "unit_name",
+   "fieldtype": "Data",
+   "label": "Unit",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "formal_name",
+   "fieldtype": "Data",
+   "label": "Formal Name"
+  },
+  {
+   "fieldname": "is_simple",
+   "fieldtype": "Check",
+   "label": "Simple Unit",
+   "default": "1"
+  },
+  {
+   "fieldname": "base_units",
+   "fieldtype": "Data",
+   "label": "Base Unit",
+   "description": "For a compound unit, the smaller unit."
+  },
+  {
+   "fieldname": "conversion",
+   "fieldtype": "Float",
+   "label": "Conversion",
+   "precision": "4",
+   "description": "How many base units make one of this unit. Dzn = 12 Pcs."
+  },
+  {
+   "fieldname": "guid",
+   "fieldtype": "Data",
+   "label": "Tally GUID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Unit",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "title_field": "unit_name"
+}
