@@ -1,0 +1,176 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "Prompt",
+ "creation": "2026-08-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "party",
+  "bill_ref",
+  "company",
+  "column_break_main",
+  "bill_date",
+  "due_date",
+  "overdue_days",
+  "section_amounts",
+  "opening_amount",
+  "column_break_amt",
+  "outstanding",
+  "is_advance",
+  "section_meta",
+  "credit_period",
+  "primary_group",
+  "column_break_meta",
+  "gstin",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Party",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "bill_ref",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bill Reference",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bill_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Bill Date",
+   "search_index": 1
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Due Date",
+   "search_index": 1
+  },
+  {
+   "fieldname": "overdue_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Overdue Days",
+   "description": "Days past the due date. Negative means not yet due."
+  },
+  {
+   "fieldname": "section_amounts",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "fieldname": "opening_amount",
+   "fieldtype": "Currency",
+   "label": "Original Amount"
+  },
+  {
+   "fieldname": "column_break_amt",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "outstanding",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Outstanding",
+   "description": "Still unpaid. Debit-positive: a customer owing money is positive."
+  },
+  {
+   "default": "0",
+   "fieldname": "is_advance",
+   "fieldtype": "Check",
+   "label": "Is Advance"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_meta",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "credit_period",
+   "fieldtype": "Data",
+   "label": "Credit Period",
+   "description": "As typed in Tally, e.g. \"45 Days\"."
+  },
+  {
+   "fieldname": "primary_group",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Primary Group",
+   "search_index": 1,
+   "description": "Copied from the party ledger so ageing can be grouped by agent."
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gstin",
+   "fieldtype": "Data",
+   "label": "GSTIN"
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Bill",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  }
+ ],
+ "sort_field": "overdue_days",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "party",
+ "track_changes": 0
+}

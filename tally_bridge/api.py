@@ -51,6 +51,18 @@ PAYABLE_GROUPS = ("Sundry Creditors",)
 
 MAX_ROWS = 2000  # hard cap so a bad query can never dump the whole ledger set
 
+# Ageing buckets, in days past due. Chosen to match how collections are
+# actually chased rather than a textbook 30/60/90.
+AGEING_BUCKETS = ((0, "not due"), (30, "1-30"), (60, "31-60"),
+                  (90, "61-90"), (180, "91-180"), (10**6, "180+"))
+
+
+def _bucket(days: int) -> str:
+    for limit, label in AGEING_BUCKETS:
+        if days <= limit:
+            return label
+    return "180+"
+
 
 def _ledger_docname(company: str, ledger_name: str, guid: str = "") -> str:
     """
@@ -297,6 +309,84 @@ def upsert_vouchers(vouchers=None):
 
     frappe.db.commit()
     out = {"created": created, "updated": updated, "unchanged": skipped}
+    if errors:
+        out["failed"] = len(errors)
+        out["errors"] = errors
+    return out
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_bills(bills=None, company=None, replace=1):
+    """
+    Replace the outstanding-bill snapshot for one company.
+
+    Tally's Bills collection returns only what is still UNPAID, so this is a
+    snapshot rather than a log: a bill that gets paid simply stops appearing.
+    That means the old rows for the company must be cleared, or paid invoices
+    would linger forever and overstate receivables.
+    """
+    _require_writer()
+    rows = _parse_payload(bills, "bills")
+    stamp = now_datetime()
+
+    if int(replace or 0) and company:
+        frappe.db.delete("Tally Bill", {"company": company})
+
+    # Party group and GSTIN are denormalised so ageing can be sliced by agent
+    # without a join per row.
+    parties = {}
+    if company:
+        for l in frappe.get_all(
+            "Tally Ledger", filters={"company": company},
+            fields=["ledger_name", "primary_group", "gstin"], limit_page_length=0,
+        ):
+            parties[l.ledger_name] = (l.primary_group, l.gstin)
+
+    created = 0
+    errors: list = []
+    for i, row in enumerate(rows):
+        party = (row.get("party") or "").strip()
+        ref = (row.get("name") or "").strip()
+        if not party or not ref:
+            continue
+        savepoint = f"bill_{i}"
+        try:
+            frappe.db.savepoint(savepoint)
+            grp, gstin = parties.get(party, ("", ""))
+            doc = frappe.get_doc({
+                "doctype": "Tally Bill",
+                "party": party,
+                "bill_ref": ref,
+                "company": (row.get("company") or company or "").strip(),
+                "bill_date": row.get("bill_date") or None,
+                "due_date": row.get("due_date") or None,
+                "overdue_days": int(row.get("overdue_days") or 0),
+                "credit_period": row.get("credit_period") or "",
+                "opening_amount": flt(row.get("opening")),
+                "outstanding": flt(row.get("closing")),
+                "is_advance": 1 if row.get("is_advance") else 0,
+                "primary_group": grp or "",
+                "gstin": gstin or "",
+                "last_synced": stamp,
+            })
+            # Bill references repeat across parties, so the key is the triple.
+            doc.name = _ledger_docname(
+                f"{row.get('company') or company or ''}|{party}", ref)
+            doc.insert(ignore_permissions=True)
+            created += 1
+            frappe.db.release_savepoint(savepoint)
+        except Exception as exc:
+            try:
+                frappe.db.rollback(save_point=savepoint)
+            except Exception:
+                frappe.db.rollback()
+                break
+            if len(errors) < 50:
+                errors.append({"bill": f"{party} / {ref}"[:140],
+                               "error": f"{type(exc).__name__}: {exc}"[:300]})
+
+    frappe.db.commit()
+    out = {"created": created}
     if errors:
         out["failed"] = len(errors)
         out["errors"] = errors
@@ -795,6 +885,163 @@ def group_summary(company=None, root=None, limit=200):
         "total_credit": round(sum(flt(r.credit) for r in rows), 2),
         "note": ("Debit is positive, matching Tally's Group Summary. Compare "
                  "these figures directly against that screen in Tally."),
+        "rows": rows,
+    }
+
+
+@frappe.whitelist(methods=["GET"])
+def ageing(company=None, party=None, group=None, min_days=None, min_amount=0,
+           party_type="receivable", limit=200):
+    """
+    Unpaid bills, oldest first, with an ageing bucket on each.
+
+    This is the collections list: which invoice, how much is still unpaid, how
+    many days past its due date. `min_days=60` gives everything more than two
+    months late; `group="AGENT RK"` scopes it to one agent's book.
+    """
+    _require_reader()
+    groups = RECEIVABLE_GROUPS if party_type == "receivable" else PAYABLE_GROUPS
+    sign = ">" if party_type == "receivable" else "<"
+
+    conds = [f"outstanding {sign} 0", "is_advance = 0",
+             "ABS(outstanding) >= %(min_amount)s"]
+    params = {"min_amount": flt(min_amount), "limit": _limit(limit, 200),
+              "groups": groups}
+    _company_clause(company, conds, params)
+    if party:
+        conds.append("party = %(party)s")
+        params["party"] = party
+    if group:
+        conds.append("primary_group = %(group)s")
+        params["group"] = group
+    else:
+        conds.append("primary_group IN %(groups)s")
+    if min_days is not None:
+        conds.append("overdue_days >= %(min_days)s")
+        params["min_days"] = int(min_days)
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT company, party, bill_ref, bill_date, due_date, overdue_days,
+               credit_period, outstanding, primary_group, gstin
+        FROM `tabTally Bill`
+        WHERE {' AND '.join(conds)}
+        ORDER BY overdue_days DESC, ABS(outstanding) DESC
+        LIMIT %(limit)s
+        """,
+        params, as_dict=True,
+    )
+    buckets: dict = {}
+    for r in rows:
+        r["bill_date"] = str(r["bill_date"] or "")
+        r["due_date"] = str(r["due_date"] or "")
+        r["bucket"] = _bucket(int(r["overdue_days"] or 0))
+        b = buckets.setdefault(r["bucket"], {"bills": 0, "amount": 0.0})
+        b["bills"] += 1
+        b["amount"] = round(b["amount"] + abs(flt(r["outstanding"])), 2)
+
+    return {
+        "party_type": party_type,
+        "count": len(rows),
+        "total_outstanding": round(sum(abs(flt(r["outstanding"])) for r in rows), 2),
+        "buckets": buckets,
+        "note": ("Outstanding is what remains unpaid. Overdue days count from "
+                 "the due date (bill date plus credit period); negative means "
+                 "not yet due."),
+        "rows": rows,
+    }
+
+
+@frappe.whitelist(methods=["GET"])
+def ageing_summary(company=None, by="group", party_type="receivable", limit=100):
+    """
+    Ageing totals rolled up by agent group or by party — who to chase first.
+
+    `by="group"` answers "which agent's book is worst"; `by="party"` ranks
+    individual customers by how much of their debt is genuinely overdue.
+    """
+    _require_reader()
+    groups = RECEIVABLE_GROUPS if party_type == "receivable" else PAYABLE_GROUPS
+    sign = ">" if party_type == "receivable" else "<"
+    col = "primary_group" if by == "group" else "party"
+
+    conds = [f"outstanding {sign} 0", "is_advance = 0",
+             "primary_group IN %(groups)s"]
+    params = {"groups": groups, "limit": _limit(limit, 100)}
+    _company_clause(company, conds, params)
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT {col} AS name, company,
+               COUNT(*) AS bills,
+               SUM(ABS(outstanding)) AS total,
+               SUM(CASE WHEN overdue_days > 0 THEN ABS(outstanding) ELSE 0 END) AS overdue,
+               SUM(CASE WHEN overdue_days > 90 THEN ABS(outstanding) ELSE 0 END) AS over_90,
+               MAX(overdue_days) AS worst_days
+        FROM `tabTally Bill`
+        WHERE {' AND '.join(conds)}
+        GROUP BY {col}, company
+        ORDER BY overdue DESC
+        LIMIT %(limit)s
+        """,
+        params, as_dict=True,
+    )
+    for r in rows:
+        r["overdue_pct"] = (round(100 * flt(r["overdue"]) / flt(r["total"]), 1)
+                            if flt(r["total"]) else 0.0)
+    return {
+        "by": by,
+        "count": len(rows),
+        "total_outstanding": round(sum(flt(r["total"]) for r in rows), 2),
+        "total_overdue": round(sum(flt(r["overdue"]) for r in rows), 2),
+        "rows": rows,
+    }
+
+
+@frappe.whitelist(methods=["GET"])
+def bills_due_between(from_date=None, to_date=None, company=None,
+                      party_type="receivable", limit=300):
+    """
+    Bills falling due in a date window — "what is due in March".
+
+    Matches on DUE date, not bill date, which is what a collections calendar
+    actually needs.
+    """
+    _require_reader()
+    groups = RECEIVABLE_GROUPS if party_type == "receivable" else PAYABLE_GROUPS
+    sign = ">" if party_type == "receivable" else "<"
+
+    conds = [f"outstanding {sign} 0", "is_advance = 0",
+             "primary_group IN %(groups)s", "due_date IS NOT NULL"]
+    params = {"groups": groups, "limit": _limit(limit, 300)}
+    _company_clause(company, conds, params)
+    if from_date:
+        conds.append("due_date >= %(from_date)s")
+        params["from_date"] = getdate(from_date)
+    if to_date:
+        conds.append("due_date <= %(to_date)s")
+        params["to_date"] = getdate(to_date)
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT company, party, bill_ref, bill_date, due_date, overdue_days,
+               outstanding, primary_group
+        FROM `tabTally Bill`
+        WHERE {' AND '.join(conds)}
+        ORDER BY due_date ASC, ABS(outstanding) DESC
+        LIMIT %(limit)s
+        """,
+        params, as_dict=True,
+    )
+    for r in rows:
+        r["bill_date"] = str(r["bill_date"] or "")
+        r["due_date"] = str(r["due_date"] or "")
+    parties = {r["party"] for r in rows}
+    return {
+        "period": {"from": str(from_date or ""), "to": str(to_date or "")},
+        "count": len(rows),
+        "party_count": len(parties),
+        "total": round(sum(abs(flt(r["outstanding"])) for r in rows), 2),
         "rows": rows,
     }
 
