@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-13 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_name",
+  "size_batch",
+  "qty",
+  "unit",
+  "due_days"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item",
+   "reqd": 1,
+   "search_index": 1,
+   "description": "Must exact-match a Tally Stock Item in the order's company file."
+  },
+  {
+   "columns": 2,
+   "fieldname": "size_batch",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Size (Batch)",
+   "description": "Sizes are batch allocations in Tally: the batch name IS the size, e.g. \"28\" or \"XL\"."
+  },
+  {
+   "columns": 2,
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "Doz",
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Unit"
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "due_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Due Days",
+   "description": "Due date offset in days from the order date, per size line."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Order Queue Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

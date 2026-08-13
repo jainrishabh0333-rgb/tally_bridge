@@ -1,0 +1,180 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "Prompt",
+ "creation": "2026-08-13 00:00:00.000000",
+ "description": "Quantity-only Sales Orders queued for import into Tally. The docname IS the order_key, which is what makes a re-send a no-op instead of a duplicate voucher.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "order_key",
+  "status",
+  "column_break_main",
+  "company",
+  "party_ledger",
+  "section_order",
+  "order_no",
+  "order_date",
+  "column_break_order",
+  "source",
+  "queued_at",
+  "section_lines",
+  "lines",
+  "section_result",
+  "tally_vch_number",
+  "imported_at",
+  "column_break_result",
+  "error"
+ ],
+ "fields": [
+  {
+   "fieldname": "order_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Order Key",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1,
+   "description": "Idempotency key from the chat side; also the docname. Re-sending the same key returns the existing row untouched."
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nImporting\nImported\nFailed\nCancelled",
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "party_ledger",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Party Ledger",
+   "reqd": 1,
+   "search_index": 1,
+   "description": "Must exact-match a Tally Ledger in the same company file. Validated before the row is created, never left to Tally."
+  },
+  {
+   "fieldname": "section_order",
+   "fieldtype": "Section Break",
+   "label": "Order"
+  },
+  {
+   "fieldname": "order_no",
+   "fieldtype": "Data",
+   "label": "Order No"
+  },
+  {
+   "fieldname": "order_date",
+   "fieldtype": "Date",
+   "label": "Order Date"
+  },
+  {
+   "fieldname": "column_break_order",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source",
+   "description": "Where the order came from, e.g. \"claude-chat\"."
+  },
+  {
+   "fieldname": "queued_at",
+   "fieldtype": "Datetime",
+   "label": "Queued At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_lines",
+   "fieldtype": "Section Break",
+   "label": "Order Lines"
+  },
+  {
+   "fieldname": "lines",
+   "fieldtype": "Table",
+   "label": "Lines",
+   "options": "Tally Order Queue Line"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_result",
+   "fieldtype": "Section Break",
+   "label": "Import Result"
+  },
+  {
+   "fieldname": "tally_vch_number",
+   "fieldtype": "Data",
+   "label": "Tally Voucher No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "imported_at",
+   "fieldtype": "Datetime",
+   "label": "Imported At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_result",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1,
+   "description": "Tally's LINEERROR text (truncated to 500 chars) when the import failed."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Order Queue",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "party_ledger",
+ "track_changes": 1
+}

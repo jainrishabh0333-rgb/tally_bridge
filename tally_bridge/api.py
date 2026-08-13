@@ -36,7 +36,7 @@ import json
 from typing import Any
 
 import frappe
-from frappe.utils import flt, getdate, now_datetime, add_days
+from frappe.utils import flt, getdate, now_datetime, add_days, add_to_date
 
 # Groups treated as receivable / payable, matched against a ledger's RESOLVED
 # root group rather than its immediate parent.
@@ -1529,3 +1529,241 @@ def check_sync_freshness():
             title="Tally sync is stale",
             message=json.dumps(health, indent=2, default=str),
         )
+
+
+# ===========================================================================
+# Sales Order queue (chat -> queue -> importer -> Tally).  The ONLY write
+# path toward Tally, and it carries quantities only — no rates, no MRP, no
+# amounts. Staff price the order later inside Tally.
+# ===========================================================================
+#
+# A queue row is a REQUEST, not a posting: nothing reaches Tally until the
+# LAN-side importer picks the row up, re-validates it, and sends the XML —
+# then reports back through mark_order_result() so every state a row passes
+# through is visible here, failures included.
+
+ORDER_STATUSES = ("Pending", "Importing", "Imported", "Failed", "Cancelled")
+
+# The full lifecycle, enforced server-side. "Importing" is a CLAIM: the
+# importer sets it just before talking to Tally, so a crash mid-import leaves
+# the row parked in Importing — surfaced as `stuck` by pending_sales_orders()
+# — rather than eligible for a second attempt that could double-post the
+# order into the live books. Imported and Cancelled are terminal.
+ORDER_TRANSITIONS = {
+    "Pending": ("Importing", "Cancelled"),
+    "Importing": ("Imported", "Failed"),
+    "Failed": ("Pending",),  # retry, once the cause is fixed
+}
+
+
+def _suggest(doctype: str, name_field: str, company: str, query: str) -> list:
+    """Up to 5 near-matches within one company file, for a helpful throw."""
+    rows = frappe.get_all(
+        doctype,
+        filters={"company": company, name_field: ["like", f"%{query}%"]},
+        fields=[name_field], limit=5,
+    )
+    return sorted({r[name_field] for r in rows})
+
+
+@frappe.whitelist(methods=["POST"])
+def queue_sales_order(order=None):
+    """
+    Queue ONE quantity-only Sales Order for import into Tally.
+
+    Deliberate exception: gated on _require_reader, not _require_writer. The
+    read key may CREATE queue rows only, because a queued row is inert — a
+    Sales Order posts to no ledger, and nothing reaches Tally until the
+    server-side importer independently validates and imports it. Handing the
+    chat side the writer key just to enqueue would also hand it the
+    mirror-ingestion endpoints, a far larger surface than this one insert.
+
+    Validation happens HERE, before the row exists: Tally silently
+    auto-creates any master it does not recognise on import, so a typo'd
+    party name would become a brand-new ledger in the live books. Party and
+    item names must therefore exact-match existing masters in the target
+    company file — no fuzzy matching, ever.
+    """
+    _require_reader()
+
+    # Same semantics as _parse_payload, for a dict: accept a JSON string
+    # (form-encoded) or a real object (JSON body).
+    if isinstance(order, str):
+        order = json.loads(order)
+    if not isinstance(order, dict):
+        frappe.throw("`order` must be a JSON object")
+
+    # Voucher type is hard-whitelisted. The queue only ever carries Sales
+    # Orders; refuse anything else at the door rather than trusting the
+    # importer to notice downstream.
+    vtype = (order.get("voucher_type") or "Sales Order").strip()
+    if vtype != "Sales Order":
+        frappe.throw(f"Refused: only 'Sales Order' may be queued, got '{vtype}'.")
+
+    order_key = (order.get("order_key") or "").strip()
+    company = (order.get("company") or "").strip()
+    party = (order.get("party_ledger") or "").strip()
+    lines = order.get("lines") or []
+    if not order_key:
+        frappe.throw("`order_key` is required — it is the idempotency key.")
+    if not company or not party or not lines:
+        frappe.throw("`company`, `party_ledger` and `lines` are all required.")
+
+    # Idempotency BEFORE validation: a re-send of an already-queued order
+    # must report its current state even if a master was renamed since the
+    # first send. The docname IS the order_key, so this lookup is exact.
+    existing_status = frappe.db.get_value("Tally Order Queue", order_key, "status")
+    if existing_status:
+        return {"queued": False, "name": order_key, "status": existing_status}
+
+    if not frappe.db.exists("Tally Ledger",
+                            {"company": company, "ledger_name": party}):
+        near = _suggest("Tally Ledger", "ledger_name", company, party)
+        frappe.throw(
+            f"Party '{party}' does not exist in company '{company}'. "
+            f"The name must exact-match an existing Tally ledger — Tally "
+            f"auto-creates unknown masters on import, which this check "
+            f"prevents. "
+            + (f"Close matches: {', '.join(near)}" if near
+               else "No similar ledger names found.")
+        )
+
+    for i, line in enumerate(lines, start=1):
+        item = (line.get("item_name") or "").strip()
+        if not item:
+            frappe.throw(f"Line {i}: `item_name` is required.")
+        if not frappe.db.exists("Tally Stock Item",
+                                {"company": company, "item_name": item}):
+            near = _suggest("Tally Stock Item", "item_name", company, item)
+            frappe.throw(
+                f"Line {i}: item '{item}' does not exist in company "
+                f"'{company}'. The name must exact-match an existing Tally "
+                f"stock item. "
+                + (f"Close matches: {', '.join(near)}" if near
+                   else "No similar item names found.")
+            )
+        if flt(line.get("qty")) <= 0:
+            frappe.throw(f"Line {i} ({item}): qty must be greater than zero.")
+
+    doc = frappe.get_doc({
+        "doctype": "Tally Order Queue",
+        "order_key": order_key,
+        "company": company,
+        "party_ledger": party,
+        "order_no": (order.get("order_no") or "").strip(),
+        "order_date": getdate(order.get("order_date")) if order.get("order_date") else None,
+        "status": "Pending",
+        "source": (order.get("source") or "claude-chat").strip(),
+        "queued_at": now_datetime(),
+    })
+    for line in lines:
+        doc.append("lines", {
+            "item_name": (line.get("item_name") or "").strip(),
+            # Batch names are sizes and often arrive numeric ("28"): keep
+            # them as text, exactly as Tally stores batch names.
+            "size_batch": str(line.get("size_batch") or "").strip(),
+            "qty": flt(line.get("qty")),
+            "unit": (line.get("unit") or "Doz").strip(),
+            "due_days": int(line.get("due_days") or 0),
+        })
+    doc.name = order_key
+    try:
+        doc.insert(ignore_permissions=True)
+    except frappe.DuplicateEntryError:
+        # Two concurrent sends of the same order_key: the second loses the
+        # race on the primary key. Report the surviving row instead of
+        # erroring — to the caller this is exactly the idempotent case.
+        frappe.db.rollback()
+        return {"queued": False, "name": order_key,
+                "status": frappe.db.get_value("Tally Order Queue", order_key, "status")}
+    frappe.db.commit()
+    return {"queued": True, "name": doc.name, "lines": len(doc.lines)}
+
+
+@frappe.whitelist(methods=["GET"])
+def pending_sales_orders(limit=20):
+    """
+    The import backlog, oldest first — what the importer will pick up next.
+
+    Also counts Importing rows older than 30 minutes as `stuck_importing`.
+    Importing is a claim taken just before talking to Tally, so a row parked
+    there for half an hour means the importer died mid-import. Those rows
+    are deliberately NOT retried automatically — Tally may or may not have
+    accepted the voucher — so a human decides, and this count is how anyone
+    finds out there is something to decide.
+    """
+    _require_reader()
+    rows = frappe.get_all(
+        "Tally Order Queue",
+        filters={"status": "Pending"},
+        fields=["name", "order_key", "company", "party_ledger", "order_no",
+                "order_date", "source", "queued_at"],
+        order_by="queued_at asc, creation asc",
+        limit=_limit(limit, 20),
+    )
+    for r in rows:
+        r["order_date"] = str(r["order_date"] or "")
+        r["queued_at"] = str(r["queued_at"] or "")
+        r["lines"] = frappe.get_all(
+            "Tally Order Queue Line",
+            filters={"parent": r["name"], "parenttype": "Tally Order Queue"},
+            fields=["item_name", "size_batch", "qty", "unit", "due_days"],
+            order_by="idx asc",
+            limit_page_length=0,
+        )
+    stuck = frappe.db.count(
+        "Tally Order Queue",
+        {"status": "Importing",
+         "modified": ["<", add_to_date(now_datetime(), minutes=-30)]},
+    )
+    return {"count": len(rows), "stuck_importing": stuck, "rows": rows}
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_order_result(order_key=None, status=None, tally_vch_number=None, error=None):
+    """
+    Advance one queued order through its lifecycle. Importer-only.
+
+    Only the transitions in ORDER_TRANSITIONS are accepted; anything else is
+    rejected with the current state spelled out. This is what makes the
+    idempotency story hold end to end: a second importer instance, a replayed
+    request, or a manual poke through the API cannot move a row backwards or
+    re-open a terminal state — Pending -> Importing can only happen once, so
+    an order can only ever be sent to Tally once.
+    """
+    _require_writer()
+    if not order_key:
+        frappe.throw("`order_key` is required")
+    if status not in ORDER_STATUSES:
+        frappe.throw(f"`status` must be one of: {', '.join(ORDER_STATUSES)}")
+
+    # Row lock so the read and the write are one atomic step: without it two
+    # racing callers could both see Pending and both claim Importing.
+    current = frappe.db.get_value("Tally Order Queue", order_key, "status",
+                                  for_update=True)
+    if current is None:
+        frappe.throw(f"No queued order '{order_key}'.")
+    allowed = ORDER_TRANSITIONS.get(current, ())
+    if status not in allowed:
+        frappe.throw(
+            f"Invalid transition {current} -> {status} for '{order_key}'. "
+            + (f"From {current} the allowed next states are: {', '.join(allowed)}."
+               if allowed else f"{current} is a terminal state.")
+        )
+
+    values = {"status": status}
+    if status == "Imported":
+        values["imported_at"] = now_datetime()
+    if tally_vch_number:
+        values["tally_vch_number"] = str(tally_vch_number).strip()
+    if error:
+        # Tally's LINEERROR text can run to pages; the first 500 chars carry
+        # the actual reason.
+        values["error"] = str(error)[:500]
+    elif status == "Pending":
+        # Failed -> Pending retry: clear the stale error so the row does not
+        # keep reading as failed while it waits for another attempt.
+        values["error"] = ""
+    frappe.db.set_value("Tally Order Queue", order_key, values)
+    frappe.db.commit()
+    return {"ok": True, "name": order_key, "from": current, "status": status}
