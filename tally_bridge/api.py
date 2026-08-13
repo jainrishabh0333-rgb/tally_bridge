@@ -905,7 +905,13 @@ def trial_balance(group=None, company=None):
         {where}
         GROUP BY company, COALESCE(NULLIF(primary_group, ''), parent_group)
         HAVING SUM(CASE WHEN closing_balance > 0 THEN closing_balance ELSE 0 END) <> 0 OR SUM(CASE WHEN closing_balance < 0 THEN -closing_balance ELSE 0 END) <> 0
-        ORDER BY (debit + credit) DESC
+        -- Sort on the aggregates themselves, not on their aliases. MySQL
+        -- permits a bare alias here but rejects one inside an expression when
+        -- it names a group function: "Reference 'debit' not supported
+        -- (reference to group function)", a 500 that made this endpoint fail
+        -- on every call it has ever received.
+        ORDER BY (SUM(CASE WHEN closing_balance > 0 THEN closing_balance ELSE 0 END)
+                + SUM(CASE WHEN closing_balance < 0 THEN -closing_balance ELSE 0 END)) DESC
         """,
         params, as_dict=True,
     )
