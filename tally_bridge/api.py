@@ -1105,6 +1105,10 @@ def search_items(query=None, company=None, group=None, limit=25):
     if group:
         conds.append("stock_group = %(group)s")
         params["group"] = group
+    total = frappe.db.sql(
+        f"SELECT COUNT(*) FROM `tabTally Stock Item` WHERE {' AND '.join(conds)}",
+        params,
+    )[0][0]
     rows = frappe.db.sql(
         f"""
         SELECT company, item_name, stock_group, part_no, base_units,
@@ -1112,14 +1116,27 @@ def search_items(query=None, company=None, group=None, limit=25):
                closing_value, hsn_code, gst_rate
         FROM `tabTally Stock Item`
         WHERE {' AND '.join(conds)}
-        ORDER BY closing_value DESC
+        -- Items HOLDING stock first, by magnitude. Ordering on the raw value
+        -- put them LAST: the item export currently sign-flips the value of
+        -- stocked finished goods, so `closing_value DESC` floated the dead
+        -- zero rows to the top — and with the row cap, a style with 249
+        -- boxes on hand answered as "0.00 across all variants".
+        ORDER BY ABS(closing_qty) DESC, ABS(closing_value) DESC, item_name
         LIMIT %(limit)s
         """,
         params, as_dict=True,
     )
-    return {"count": len(rows),
-            "distinct_names": sorted({r["item_name"] for r in rows}),
-            "rows": rows}
+    out = {"count": len(rows),
+           "total_matches": total,
+           "distinct_names": sorted({r["item_name"] for r in rows}),
+           "rows": rows}
+    if total > len(rows):
+        # A capped list must SAY it is capped: a silently truncated result
+        # reads as "this is everything" and produces confidently wrong
+        # answers about whatever sorted below the cut.
+        out["note"] = (f"Showing {len(rows)} of {total} matching items — "
+                       f"narrow the query or raise `limit` to see the rest.")
+    return out
 
 
 @frappe.whitelist(methods=["GET"])
