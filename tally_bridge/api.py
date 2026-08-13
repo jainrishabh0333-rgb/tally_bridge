@@ -148,7 +148,7 @@ def upsert_ledgers(ledgers=None):
     _require_writer()
     rows = _parse_payload(ledgers, "ledgers")
     stamp = now_datetime()
-    created = updated = skipped = 0
+    created = updated = skipped = pruned = 0
     errors: list = []
 
     for i, row in enumerate(rows):
@@ -183,15 +183,45 @@ def upsert_ledgers(ledgers=None):
             "last_synced": stamp,
         }
 
-        existing_alter = frappe.db.get_value("Tally Ledger", docname, "alter_id")
-        if existing_alter is not None:
+        # Resolve the existing row by FIELDS, never by docname. The docname
+        # formula has already changed once (company scoping), and a lookup
+        # keyed on it silently failed to see every row written under the old
+        # formula — so all 2,476 ledgers were inserted a SECOND time beside
+        # their originals and every balance in the mirror doubled. Parties
+        # showed twice with different figures and there was no way to tell
+        # which was current. upsert_vouchers has always matched on fields,
+        # which is precisely why the same rename left 19,566 vouchers intact.
+        match = ({"company": company, "guid": row["guid"]}
+                 if row.get("guid") else
+                 {"company": company, "ledger_name": name})
+        found = frappe.get_all("Tally Ledger", filters=match,
+                               fields=["name", "alter_id"],
+                               order_by="creation asc")
+
+        # More than one row for the same ledger IS the duplication above.
+        # Keep the oldest and drop the rest, so an ordinary --ledgers-only run
+        # repairs the mirror in place. Without this the stale generation is
+        # unreachable forever: nothing else in this file ever deletes a
+        # Tally Ledger row.
+        had_duplicates = len(found) > 1
+        for extra in found[1:]:
+            frappe.db.delete("Tally Ledger", {"name": extra.name})
+            pruned += 1
+        found = found[:1]
+
+        if found:
+            target = found[0].name
+            existing_alter = found[0].alter_id
             # Unchanged in Tally? Just touch the sync stamp — much cheaper.
-            if existing_alter and existing_alter == values["alter_id"]:
-                frappe.db.set_value("Tally Ledger", docname, "last_synced", stamp,
+            # Skip that shortcut when this ledger had duplicates: the row we
+            # kept may be the stale generation, so its figures must be
+            # rewritten from Tally even if AlterID looks unchanged.
+            if existing_alter and existing_alter == values["alter_id"] and not had_duplicates:
+                frappe.db.set_value("Tally Ledger", target, "last_synced", stamp,
                                     update_modified=False)
                 skipped += 1
                 continue
-            frappe.db.set_value("Tally Ledger", docname, values, update_modified=False)
+            frappe.db.set_value("Tally Ledger", target, values, update_modified=False)
             updated += 1
         else:
             doc = frappe.get_doc({"doctype": "Tally Ledger", **values})
@@ -221,6 +251,10 @@ def upsert_ledgers(ledgers=None):
 
     frappe.db.commit()
     out = {"created": created, "updated": updated, "unchanged": skipped}
+    if pruned:
+        # Surfaced so the agent logs it and the operator watches the mirror
+        # repair itself, rather than wondering where rows went.
+        out["pruned_duplicates"] = pruned
     if errors:
         out["failed"] = len(errors)
         out["errors"] = errors
