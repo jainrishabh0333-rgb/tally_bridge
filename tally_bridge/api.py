@@ -1316,7 +1316,14 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
         LEFT JOIN `tabTally Voucher Entry` e ON e.parent = v.name
         WHERE {' AND '.join(conds)}
         GROUP BY v.company, v.name, v.voucher_date, v.voucher_type, v.voucher_number, v.party, v.amount
-        HAVING ABS(COALESCE(SUM(e.amount), 0)) > %(tol)s OR COUNT(e.name) = 0
+        -- A voucher with no ledger entries is only suspicious if it claims to
+        -- be worth something. Stock Journals, Stock Transfers and Job Work
+        -- vouchers move goods rather than money: they carry inventory entries,
+        -- no ledger entries, and an amount of zero. Flagging those buried the
+        -- real hits 6:1 -- 1,345 of 1,623 rows in one April -- which teaches
+        -- the reader to ignore this check, the one outcome worse than the bug.
+        HAVING ABS(COALESCE(SUM(e.amount), 0)) > %(tol)s
+            OR (COUNT(e.name) = 0 AND ABS(COALESCE(v.amount, 0)) > %(tol)s)
         ORDER BY ABS(COALESCE(SUM(e.amount), 0)) DESC
         LIMIT %(limit)s
         """,
@@ -1327,7 +1334,11 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
     return {
         "count": len(rows),
         "healthy": len(rows) == 0,
-        "note": "Entries should net to zero. Non-zero rows indicate a sync or export problem.",
+        "note": ("Entries should net to zero. Non-zero rows indicate a sync or "
+                 "export problem. Inventory-only vouchers (Stock Journal, Stock "
+                 "Transfer, Job Work) carry no ledger entries by design and are "
+                 "not counted. Raise `tolerance` to 1 to hide sub-rupee "
+                 "round-off residuals and see only material breaks."),
         "rows": rows,
     }
 
