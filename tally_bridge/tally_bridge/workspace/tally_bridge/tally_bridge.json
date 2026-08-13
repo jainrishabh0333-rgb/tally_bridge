@@ -1,0 +1,219 @@
+{
+ "charts": [
+  {
+   "chart_name": "Sales Trend",
+   "label": "Sales Trend"
+  },
+  {
+   "chart_name": "Collections Trend",
+   "label": "Collections Trend"
+  },
+  {
+   "chart_name": "Receivables by Agent",
+   "label": "Receivables by Agent"
+  }
+ ],
+ "content": "[{\"id\": \"tb_hdr_main\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>SN Jain Industries \\u2014 Tally Mirror</b></span>\", \"col\": 12}}, {\"id\": \"tb_par_intro\", \"type\": \"paragraph\", \"data\": {\"text\": \"<span class=\\\"text-muted\\\">Read-only mirror of TallyPrime. The sync agent writes here; nothing on this site writes back to Tally except approved orders in the Order Queue.</span>\", \"col\": 12}}, {\"id\": \"tb_nc_recv\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Net Receivables\", \"col\": 3}}, {\"id\": \"tb_nc_sales\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Sales This Month\", \"col\": 3}}, {\"id\": \"tb_nc_coll\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Collections This Month\", \"col\": 3}}, {\"id\": \"tb_nc_vch\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Vouchers Mirrored\", \"col\": 3}}, {\"id\": \"tb_sp_1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"tb_hdr_trends\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>Trends</b></span>\", \"col\": 12}}, {\"id\": \"tb_ch_sales\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Sales Trend\", \"col\": 6}}, {\"id\": \"tb_ch_coll\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Collections Trend\", \"col\": 6}}, {\"id\": \"tb_ch_recv\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Receivables by Agent\", \"col\": 6}}, {\"id\": \"tb_sp_2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"tb_hdr_browse\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>Browse</b></span>\", \"col\": 12}}, {\"id\": \"tb_sc_ledger\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Parties & Ledgers\", \"col\": 3}}, {\"id\": \"tb_sc_voucher\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Vouchers\", \"col\": 3}}, {\"id\": \"tb_sc_stock\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Stock Items\", \"col\": 3}}, {\"id\": \"tb_sc_bills\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Bills\", \"col\": 3}}, {\"id\": \"tb_sc_orders\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Order Queue\", \"col\": 3}}, {\"id\": \"tb_sc_sync\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Health\", \"col\": 3}}, {\"id\": \"tb_sp_3\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"tb_hdr_all\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h5\\\"><b>All Records</b></span>\", \"col\": 12}}, {\"id\": \"tb_card_masters\", \"type\": \"card\", \"data\": {\"card_name\": \"Masters\", \"col\": 4}}, {\"id\": \"tb_card_txn\", \"type\": \"card\", \"data\": {\"card_name\": \"Transactions\", \"col\": 4}}, {\"id\": \"tb_card_ops\", \"type\": \"card\", \"data\": {\"card_name\": \"Operations\", \"col\": 4}}]",
+ "creation": "2026-08-13 12:00:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "dashboard",
+ "idx": 0,
+ "indicator_color": "",
+ "is_hidden": 0,
+ "label": "Tally Bridge",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Masters",
+   "link_count": 5,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ledgers (Parties)",
+   "link_count": 0,
+   "link_to": "Tally Ledger",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Stock Items",
+   "link_count": 0,
+   "link_to": "Tally Stock Item",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Stock Groups",
+   "link_count": 0,
+   "link_to": "Tally Stock Group",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Units",
+   "link_count": 0,
+   "link_to": "Tally Unit",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Godowns",
+   "link_count": 0,
+   "link_to": "Tally Godown",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Transactions",
+   "link_count": 3,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Vouchers",
+   "link_count": 0,
+   "link_to": "Tally Voucher",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Bills",
+   "link_count": 0,
+   "link_to": "Tally Bill",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Order Queue",
+   "link_count": 0,
+   "link_to": "Tally Order Queue",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Operations",
+   "link_count": 1,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Logs",
+   "link_count": 0,
+   "link_to": "Tally Sync Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-08-13 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Bridge",
+ "number_cards": [
+  {
+   "label": "Net Receivables",
+   "number_card_name": "Net Receivables"
+  },
+  {
+   "label": "Sales This Month",
+   "number_card_name": "Sales This Month"
+  },
+  {
+   "label": "Collections This Month",
+   "number_card_name": "Collections This Month"
+  },
+  {
+   "label": "Vouchers Mirrored",
+   "number_card_name": "Vouchers Mirrored"
+  }
+ ],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 1.0,
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Parties & Ledgers",
+   "link_to": "Tally Ledger",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "Vouchers",
+   "link_to": "Tally Voucher",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "Stock Items",
+   "link_to": "Tally Stock Item",
+   "type": "DocType"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "List",
+   "label": "Bills",
+   "link_to": "Tally Bill",
+   "type": "DocType"
+  },
+  {
+   "color": "Purple",
+   "doc_view": "List",
+   "label": "Order Queue",
+   "link_to": "Tally Order Queue",
+   "type": "DocType"
+  },
+  {
+   "color": "Red",
+   "doc_view": "List",
+   "format": "{} Failed",
+   "label": "Sync Health",
+   "link_to": "Tally Sync Log",
+   "stats_filter": "{\"status\": \"Failed\"}",
+   "type": "DocType"
+  }
+ ],
+ "title": "Tally Bridge"
+}

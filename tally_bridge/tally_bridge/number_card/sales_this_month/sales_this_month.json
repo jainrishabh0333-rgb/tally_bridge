@@ -1,0 +1,22 @@
+{
+ "aggregate_function_based_on": "amount",
+ "creation": "2026-08-13 12:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Tally Voucher",
+ "dynamic_filters_json": "[]",
+ "filters_json": "[[\"Tally Voucher\", \"voucher_type\", \"in\", [\"Sales\", \"Flipkart Sale\", \"Myntra Sale\", \"Amazon Sale\", \"Meesho Sale\", \"Shopify Sale\", \"Ajio Sale\", \"Limeroad Sale\", \"V-Mart Sale\", \"Rent Sale\"], false], [\"Tally Voucher\", \"is_cancelled\", \"=\", 0, false], [\"Tally Voucher\", \"voucher_date\", \"Timespan\", \"this month\", false]]",
+ "function": "Sum",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Sales This Month",
+ "modified": "2026-08-13 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Sales This Month",
+ "owner": "Administrator",
+ "show_percentage_stats": 0,
+ "stats_time_interval": "Monthly",
+ "type": "Document Type"
+}

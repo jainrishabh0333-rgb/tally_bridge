@@ -1,0 +1,22 @@
+{
+ "aggregate_function_based_on": "closing_balance",
+ "creation": "2026-08-13 12:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Tally Ledger",
+ "dynamic_filters_json": "[]",
+ "filters_json": "[[\"Tally Ledger\", \"company\", \"=\", \"SN JAIN INDUSTRIES PVT LTD - (26-27)\", false], [\"Tally Ledger\", \"primary_group\", \"=\", \"Sundry Debtors\", false]]",
+ "function": "Sum",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Net Receivables",
+ "modified": "2026-08-13 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Net Receivables",
+ "owner": "Administrator",
+ "show_percentage_stats": 0,
+ "stats_time_interval": "Monthly",
+ "type": "Document Type"
+}
