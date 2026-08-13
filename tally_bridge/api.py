@@ -51,6 +51,20 @@ PAYABLE_GROUPS = ("Sundry Creditors",)
 
 MAX_ROWS = 2000  # hard cap so a bad query can never dump the whole ledger set
 
+# Order vouchers are commitments, not postings: in Tally a Sales/Purchase
+# Order carries a party and an amount but writes NOTHING to any ledger.
+# Mirrored verbatim, they still land in `tabTally Voucher` beside real
+# transactions — 2,044 Sales Orders (10.66cr) were being counted into party
+# statements and period totals, which is why a customer's statement could
+# never reconcile to the closing balance printed beside it. Every endpoint
+# that answers an ACCOUNTING question must exclude them; day_book keeps them
+# visible because Tally's own Day Book shows orders too.
+# Matched by type name: the reserved parent type is not fetched from Tally,
+# and this book uses the stock names.
+ORDER_TYPES = ("Sales Order", "Purchase Order")
+_NOT_ORDER = "voucher_type NOT IN %(order_types)s"
+_NOT_ORDER_V = "v.voucher_type NOT IN %(order_types)s"
+
 # Ageing buckets, in days past due. Chosen to match how collections are
 # actually chased rather than a textbook 30/60/90.
 AGEING_BUCKETS = ((0, "not due"), (30, "1-30"), (60, "31-60"),
@@ -704,9 +718,10 @@ def compare_ledger(ledger_name=None, limit=50):
         SELECT v.company, COUNT(*) FROM `tabTally Voucher Entry` e
         INNER JOIN `tabTally Voucher` v ON v.name = e.parent
         WHERE e.ledger = %(n)s AND v.is_cancelled = 0
+          AND v.voucher_type NOT IN %(order_types)s
         GROUP BY v.company
         """,
-        {"n": ledger_name},
+        {"n": ledger_name, "order_types": ORDER_TYPES},
     ))
     spans = dict(frappe.db.sql(
         "SELECT company, MIN(voucher_date) FROM `tabTally Voucher` GROUP BY company"
@@ -846,8 +861,11 @@ def ledger_statement(ledger=None, from_date=None, to_date=None, limit=500, compa
             "suggestions": [s.ledger_name for s in suggestions],
         }
 
-    conds = ["e.ledger = %(ledger)s", "v.is_cancelled = 0"]
-    params: dict[str, Any] = {"ledger": ledger, "limit": _limit(limit, 500)}
+    # Orders excluded: a statement's running total must reconcile to the
+    # closing balance shown beside it, and orders post nothing in Tally.
+    conds = ["e.ledger = %(ledger)s", "v.is_cancelled = 0", _NOT_ORDER_V]
+    params: dict[str, Any] = {"ledger": ledger, "limit": _limit(limit, 500),
+                              "order_types": ORDER_TYPES}
     _company_clause(master.company, conds, params, col="v.company")
     if from_date:
         conds.append("v.voucher_date >= %(from_date)s")
@@ -1011,7 +1029,18 @@ def summary_by_voucher_type(from_date=None, to_date=None, company=None):
     for r in rows:
         r["first_date"] = str(r["first_date"])
         r["last_date"] = str(r["last_date"])
-    return {"rows": rows, "grand_total": round(sum(flt(r["total"]) for r in rows), 2)}
+    # Orders stay VISIBLE as rows — "how much is on order" is a real question
+    # — but they are commitments, not postings, so they must not inflate the
+    # accounting total.
+    return {
+        "rows": rows,
+        "grand_total": round(sum(flt(r["total"]) for r in rows
+                                 if r["voucher_type"] not in ORDER_TYPES), 2),
+        "on_order_total": round(sum(flt(r["total"]) for r in rows
+                                    if r["voucher_type"] in ORDER_TYPES), 2),
+        "note": ("grand_total excludes Sales/Purchase Orders (commitments, "
+                 "not postings); their value is reported as on_order_total."),
+    }
 
 
 @frappe.whitelist(methods=["GET"])
@@ -1359,8 +1388,11 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
     trusting any downstream report.
     """
     _require_reader()
-    conds = ["v.is_cancelled = 0"]
-    params: dict[str, Any] = {"tol": flt(tolerance), "limit": _limit(limit, 100)}
+    # Orders excluded: they post nothing, so they cannot unbalance the books —
+    # any non-zero net on an order row is noise that buries the real breaks.
+    conds = ["v.is_cancelled = 0", _NOT_ORDER_V]
+    params: dict[str, Any] = {"tol": flt(tolerance), "limit": _limit(limit, 100),
+                              "order_types": ORDER_TYPES}
     if from_date:
         conds.append("v.voucher_date >= %(from_date)s")
         params["from_date"] = getdate(from_date)
