@@ -163,7 +163,15 @@ def upsert_ledgers(ledgers=None):
       try:
         frappe.db.savepoint(savepoint)
         company = (row.get("company") or "").strip()
-        docname = _ledger_docname(company, name, row.get("guid"))
+        # Strip ONCE and reuse for the docname, the stored value and the match
+        # filter. _ledger_docname strips internally, so leaving it unstripped
+        # here made the lookup and the primary key disagree by construction:
+        # a whitespace-only GUID is truthy, so the filter became
+        # {company, guid: " "} — and under MariaDB's PAD SPACE collation that
+        # compares equal to guid = "", returning every GUID-less ledger in the
+        # company for the prune below to delete.
+        guid = (row.get("guid") or "").strip()
+        docname = _ledger_docname(company, name, guid)
 
         values = {
             "ledger_name": name,
@@ -177,7 +185,7 @@ def upsert_ledgers(ledgers=None):
             "email": row.get("email") or "",
             "phone": row.get("phone") or "",
             "bill_by_bill": 1 if row.get("bill_by_bill") else 0,
-            "guid": row.get("guid") or "",
+            "guid": guid,
             "master_id": row.get("master_id") or "",
             "alter_id": row.get("alter_id") or "",
             "last_synced": stamp,
@@ -191,18 +199,25 @@ def upsert_ledgers(ledgers=None):
         # showed twice with different figures and there was no way to tell
         # which was current. upsert_vouchers has always matched on fields,
         # which is precisely why the same rename left 19,566 vouchers intact.
-        match = ({"company": company, "guid": row["guid"]}
-                 if row.get("guid") else
+        match = ({"company": company, "guid": guid} if guid else
                  {"company": company, "ledger_name": name})
         found = frappe.get_all("Tally Ledger", filters=match,
                                fields=["name", "alter_id"],
-                               order_by="creation asc")
+                               order_by="creation desc")
 
         # More than one row for the same ledger IS the duplication above.
-        # Keep the oldest and drop the rest, so an ordinary --ledgers-only run
+        # Keep the NEWEST and drop the rest, so an ordinary --ledgers-only run
         # repairs the mirror in place. Without this the stale generation is
         # unreachable forever: nothing else in this file ever deletes a
         # Tally Ledger row.
+        #
+        # Newest, not oldest, and the direction is load-bearing. The older row
+        # is the pre-company-scoping generation whose docname is a bare GUID —
+        # the very primary key that had to be abandoned because Tally reuses
+        # GUIDs across financial-year files. Keeping it would delete every
+        # correctly scoped row, reinstate the unsafe key for the whole table,
+        # and leave no later run able to converge, since the field match would
+        # keep finding the bare-GUID survivor and updating it in place forever.
         had_duplicates = len(found) > 1
         for extra in found[1:]:
             frappe.db.delete("Tally Ledger", {"name": extra.name})
@@ -236,11 +251,17 @@ def upsert_ledgers(ledgers=None):
             # A deadlock or dropped connection destroys every savepoint. Keep
             # what committed, report the rest as failed, stop cleanly.
             frappe.db.rollback()
+            # The rollback just discarded every write of this request —
+            # including any prunes. Counters that keep their pre-rollback
+            # values would report deletions and updates that never happened,
+            # and a prune count is exactly the number an operator reconciles
+            # row totals against.
+            created = updated = skipped = pruned = 0
             errors.append({"ledger": (row.get("name") or "")[:140],
                            "error": f"{type(exc).__name__}: {exc}"[:300]})
             errors.append({"ledger": "(batch stopped)",
                            "error": "transaction was rolled back by the database; "
-                                    "remaining rows in this batch were not attempted"})
+                                    "no rows from this batch were saved"})
             break
         if len(errors) < 50:
             errors.append({
