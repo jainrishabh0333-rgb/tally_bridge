@@ -10,6 +10,8 @@
   "size_batch",
   "qty",
   "unit",
+  "rate",
+  "discount",
   "due_days"
  ],
  "fields": [
@@ -46,6 +48,23 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Unit"
+  },
+  {
+   "columns": 2,
+   "fieldname": "rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Rate",
+   "precision": "2",
+   "description": "Rate per unit, before discount. REQUIRED to import: this Tally build refuses zero-value vouchers."
+  },
+  {
+   "fieldname": "discount",
+   "fieldtype": "Float",
+   "label": "Discount %",
+   "precision": "2",
+   "default": "50",
+   "description": "First step of the discount chain, as Tally records it. The importer nets the full 50+20 chain into the amount."
   },
   {
    "columns": 1,

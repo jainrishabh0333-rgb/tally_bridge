@@ -1569,7 +1569,7 @@ def _suggest(doctype: str, name_field: str, company: str, query: str) -> list:
 @frappe.whitelist(methods=["POST"])
 def queue_sales_order(order=None):
     """
-    Queue ONE quantity-only Sales Order for import into Tally.
+    Queue ONE priced Sales Order for import into Tally.
 
     Deliberate exception: gated on _require_reader, not _require_writer. The
     read key may CREATE queue rows only, because a queued row is inert — a
@@ -1644,6 +1644,21 @@ def queue_sales_order(order=None):
             )
         if flt(line.get("qty")) <= 0:
             frappe.throw(f"Line {i} ({item}): qty must be greater than zero.")
+        # A rate is what makes the voucher importable at all: this Tally
+        # build refuses zero-value vouchers (proven live 2026-08-13), so a
+        # rateless row would queue happily and then fail at the last step.
+        # Refused here, where the caller can still do something about it.
+        if flt(line.get("rate")) <= 0:
+            frappe.throw(
+                f"Line {i} ({item}): a positive `rate` is required — Tally "
+                f"refuses zero-value vouchers, so an unpriced order cannot "
+                f"be imported."
+            )
+        if flt(line.get("discount")) < 0 or flt(line.get("discount")) >= 100:
+            frappe.throw(
+                f"Line {i} ({item}): discount {line.get('discount')!r} is "
+                f"not a sane percentage."
+            )
 
     doc = frappe.get_doc({
         "doctype": "Tally Order Queue",
@@ -1664,6 +1679,10 @@ def queue_sales_order(order=None):
             "size_batch": str(line.get("size_batch") or "").strip(),
             "qty": flt(line.get("qty")),
             "unit": (line.get("unit") or "Doz").strip(),
+            "rate": flt(line.get("rate")),
+            # 50 is what every priced line in this book carries; Tally records
+            # only the first step of the chain.
+            "discount": flt(line.get("discount") or 50),
             "due_days": int(line.get("due_days") or 0),
         })
     doc.name = order_key
@@ -1707,7 +1726,8 @@ def pending_sales_orders(limit=20):
         r["lines"] = frappe.get_all(
             "Tally Order Queue Line",
             filters={"parent": r["name"], "parenttype": "Tally Order Queue"},
-            fields=["item_name", "size_batch", "qty", "unit", "due_days"],
+            fields=["item_name", "size_batch", "qty", "unit", "rate",
+                    "discount", "due_days"],
             order_by="idx asc",
             limit_page_length=0,
         )
