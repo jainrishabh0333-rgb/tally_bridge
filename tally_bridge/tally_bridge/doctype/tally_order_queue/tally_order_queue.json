@@ -3,7 +3,7 @@
  "allow_rename": 0,
  "autoname": "Prompt",
  "creation": "2026-08-13 00:00:00.000000",
- "description": "Quantity-only Sales Orders queued for import into Tally. The docname IS the order_key, which is what makes a re-send a no-op instead of a duplicate voucher.",
+ "description": "Priced Sales Orders queued for import into Tally. The docname IS the order_key, which is what makes a re-send a no-op instead of a duplicate voucher. Lines carry a rate: this Tally build refuses zero-value vouchers.",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",

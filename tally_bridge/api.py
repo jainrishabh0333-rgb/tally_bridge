@@ -1533,8 +1533,9 @@ def check_sync_freshness():
 
 # ===========================================================================
 # Sales Order queue (chat -> queue -> importer -> Tally).  The ONLY write
-# path toward Tally, and it carries quantities only — no rates, no MRP, no
-# amounts. Staff price the order later inside Tally.
+# path toward Tally, and it carries a rate per line — this Tally build
+# REFUSES zero-value vouchers, so an unpriced row could never import.
+# No MRP, ever.
 # ===========================================================================
 #
 # A queue row is a REQUEST, not a posting: nothing reaches Tally until the
