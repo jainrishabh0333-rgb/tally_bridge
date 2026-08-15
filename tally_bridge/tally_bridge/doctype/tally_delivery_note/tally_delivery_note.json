@@ -1,0 +1,208 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "voucher_number",
+  "voucher_date",
+  "company",
+  "cb_head",
+  "party",
+  "party_group",
+  "sec_dispatch",
+  "order_ref",
+  "vehicle_no",
+  "lr_no",
+  "cb_dispatch",
+  "dispatched_through",
+  "destination",
+  "is_cancelled",
+  "narration",
+  "sec_lines",
+  "lines",
+  "sec_meta",
+  "guid",
+  "master_id",
+  "cb_meta",
+  "alter_id",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "voucher_number",
+   "fieldtype": "Data",
+   "label": "Delivery Note No",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "voucher_date",
+   "fieldtype": "Date",
+   "label": "Date",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1,
+   "description": "Ledger name exactly as Tally holds it. This is what every party-scoped query filters on."
+  },
+  {
+   "fieldname": "party_group",
+   "fieldtype": "Data",
+   "label": "Agent Group",
+   "search_index": 1,
+   "description": "The party's immediate group, denormalised at sync so an agent's book can be sliced without a join per row."
+  },
+  {
+   "fieldname": "sec_dispatch",
+   "fieldtype": "Section Break",
+   "label": "Dispatch"
+  },
+  {
+   "fieldname": "order_ref",
+   "fieldtype": "Data",
+   "label": "Against Order",
+   "search_index": 1
+  },
+  {
+   "fieldname": "vehicle_no",
+   "fieldtype": "Data",
+   "label": "Vehicle No"
+  },
+  {
+   "fieldname": "lr_no",
+   "fieldtype": "Data",
+   "label": "LR / Document No"
+  },
+  {
+   "fieldname": "cb_dispatch",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dispatched_through",
+   "fieldtype": "Data",
+   "label": "Dispatched Through"
+  },
+  {
+   "fieldname": "destination",
+   "fieldtype": "Data",
+   "label": "Destination"
+  },
+  {
+   "fieldname": "is_cancelled",
+   "fieldtype": "Check",
+   "label": "Cancelled",
+   "default": "0"
+  },
+  {
+   "fieldname": "narration",
+   "fieldtype": "Small Text",
+   "label": "Narration"
+  },
+  {
+   "fieldname": "sec_lines",
+   "fieldtype": "Section Break",
+   "label": "Lines"
+  },
+  {
+   "fieldname": "lines",
+   "fieldtype": "Table",
+   "label": "Lines",
+   "options": "Tally Delivery Note Line"
+  },
+  {
+   "fieldname": "sec_meta",
+   "fieldtype": "Section Break",
+   "label": "Tally Metadata",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "guid",
+   "fieldtype": "Data",
+   "label": "Tally GUID",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "master_id",
+   "fieldtype": "Data",
+   "label": "Master ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "alter_id",
+   "fieldtype": "Data",
+   "label": "Alter ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Delivery Note",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "voucher_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "autoname": "Prompt",
+ "title_field": "party",
+ "description": "Delivery notes, when the book issues any. MEASURED 2026-08-15: this book has NO Delivery Note voucher type \u2014 goods reach a distributor as a Sales invoice \u2014 so this table stays empty until the voucher types listed in the agent's [orders].delivery_types appear. Fulfilment is computed from invoices meanwhile.",
+ "search_fields": "party,voucher_number"
+}

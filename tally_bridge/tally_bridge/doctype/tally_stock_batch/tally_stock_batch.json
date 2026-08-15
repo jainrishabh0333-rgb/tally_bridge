@@ -1,0 +1,118 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_name",
+  "batch_name",
+  "company",
+  "cb_batch",
+  "closing_qty",
+  "closing_qty_unit",
+  "as_of",
+  "source_voucher",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item",
+   "in_list_view": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "batch_name",
+   "fieldtype": "Data",
+   "label": "Size (Batch)",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_batch",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "closing_qty",
+   "fieldtype": "Float",
+   "label": "Balance Qty",
+   "in_list_view": 1,
+   "precision": "4",
+   "description": "The order-pad TDL's own per-size balance (BlncQty UDF), harvested from the newest voucher line that quoted this size. Tally's masters cannot answer per-size stock on this build \u2014 the BatchAllocations walk repeats the item total on every size row (measured 2026-08-15)."
+  },
+  {
+   "fieldname": "closing_qty_unit",
+   "fieldtype": "Data",
+   "label": "Unit"
+  },
+  {
+   "fieldname": "as_of",
+   "fieldtype": "Date",
+   "label": "As Of",
+   "in_list_view": 1,
+   "description": "Date of the voucher the balance was read from. Vouchers are punched daily in this book, so this stays close to today."
+  },
+  {
+   "fieldname": "source_voucher",
+   "fieldtype": "Data",
+   "label": "From Voucher",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Stock Batch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "autoname": "Prompt",
+ "title_field": "item_name",
+ "description": "Per-size stock balance, harvested from voucher lines. The portal never returns these numbers to a distributor \u2014 it buckets them as in / low / out.",
+ "search_fields": "item_name,batch_name"
+}

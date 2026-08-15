@@ -21,6 +21,7 @@
   "is_advance",
   "section_meta",
   "credit_period",
+  "parent_group",
   "primary_group",
   "column_break_meta",
   "gstin",
@@ -115,12 +116,20 @@
    "description": "As typed in Tally, e.g. \"45 Days\"."
   },
   {
+   "fieldname": "parent_group",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Agent Group",
+   "search_index": 1,
+   "description": "The party's immediate group in Tally, e.g. \"AGENT RK\". This is what ageing filters on to scope a book to one agent."
+  },
+  {
    "fieldname": "primary_group",
    "fieldtype": "Data",
    "in_standard_filter": 1,
    "label": "Primary Group",
    "search_index": 1,
-   "description": "Copied from the party ledger so ageing can be grouped by agent."
+   "description": "The root group, always \"Sundry Debtors\" or \"Sundry Creditors\". Separates receivable from payable."
   },
   {
    "fieldname": "column_break_meta",

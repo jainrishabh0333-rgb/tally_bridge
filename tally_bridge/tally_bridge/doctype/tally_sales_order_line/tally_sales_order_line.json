@@ -1,0 +1,157 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_name",
+  "size_batch",
+  "qty",
+  "unit",
+  "delivered_qty",
+  "pending_qty",
+  "preclosed_qty",
+  "cb_line",
+  "billed_qty",
+  "rate",
+  "rate_unit",
+  "discount",
+  "discount2",
+  "amount",
+  "due_date",
+  "godown",
+  "order_no"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item",
+   "in_list_view": 1,
+   "columns": 3,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "size_batch",
+   "fieldtype": "Data",
+   "label": "Size (Batch)",
+   "in_list_view": 1,
+   "columns": 1,
+   "search_index": 1,
+   "description": "Sizes are batch allocations in Tally: the batch name IS the size, e.g. \"28\" or \"XL\"."
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "label": "Ordered Qty",
+   "in_list_view": 1,
+   "columns": 1,
+   "precision": "4"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Unit",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "delivered_qty",
+   "fieldtype": "Float",
+   "label": "Delivered",
+   "in_list_view": 1,
+   "columns": 1,
+   "precision": "4",
+   "description": "Computed at sync from invoice (and delivery-note) lines that quote this order number for this item and size. Tally holds no reliable per-size fulfilment figure in this book."
+  },
+  {
+   "fieldname": "pending_qty",
+   "fieldtype": "Float",
+   "label": "Pending",
+   "in_list_view": 1,
+   "columns": 1,
+   "precision": "4"
+  },
+  {
+   "fieldname": "preclosed_qty",
+   "fieldtype": "Float",
+   "label": "Pre-closed Qty",
+   "precision": "4",
+   "description": "Quantity the order was closed short by, when this build exports it. Zero otherwise \u2014 never guessed."
+  },
+  {
+   "fieldname": "cb_line",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "billed_qty",
+   "fieldtype": "Float",
+   "label": "Billed Qty",
+   "precision": "4"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Float",
+   "label": "Rate",
+   "precision": "2"
+  },
+  {
+   "fieldname": "rate_unit",
+   "fieldtype": "Data",
+   "label": "Rate Unit",
+   "description": "May differ from the quantity unit, so amount is never recomputed as qty x rate."
+  },
+  {
+   "fieldname": "discount",
+   "fieldtype": "Float",
+   "label": "Discount %",
+   "precision": "2",
+   "description": "First step of the chain, as Tally records it (50 in this book)."
+  },
+  {
+   "fieldname": "discount2",
+   "fieldtype": "Float",
+   "label": "Second Discount %",
+   "precision": "2",
+   "description": "Second step, held in Tally's BatchDiscount2 UDF (20 in this book). Storing only the first step misprices every line."
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "description": "Net of the full discount chain, exactly as Tally exports it."
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Due Date",
+   "description": "Per size \u2014 Tally carries the due date on the batch allocation, not on the item line."
+  },
+  {
+   "fieldname": "godown",
+   "fieldtype": "Data",
+   "label": "Godown"
+  },
+  {
+   "fieldname": "order_no",
+   "fieldtype": "Data",
+   "label": "Order No (line)"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Sales Order Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "istable": 1
+}

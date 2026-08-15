@@ -65,6 +65,23 @@ ORDER_TYPES = ("Sales Order", "Purchase Order")
 _NOT_ORDER = "voucher_type NOT IN %(order_types)s"
 _NOT_ORDER_V = "v.voucher_type NOT IN %(order_types)s"
 
+# Hygiene: a voucher counts only if it was actually POSTED. Cancelled ones are
+# reversed-out entries; "optional" ones are Tally's drafts — entered, visible,
+# and deliberately not posted to any ledger. Both carry a party and an amount
+# and are indistinguishable from real entries in an export.
+#
+# These filters were written long before they could work. Until 2026-08-15 the
+# voucher FETCH omitted IsCancelled and IsOptional, so every mirrored row
+# landed `is_cancelled = 0, is_optional = 0` and the conditions matched
+# everything. They only start filtering once the agent runs the
+# `filter_dotted_rich` variant AND the affected date range has been re-synced.
+_POSTED = "is_cancelled = 0 AND is_optional = 0"
+_POSTED_V = "v.is_cancelled = 0 AND v.is_optional = 0"
+
+# Ledger groups that RESTATE other groups rather than posting alongside them.
+# Tally files Profit & Loss A/c under the reserved primary group "Primary".
+BALANCING_GROUPS = ("Primary",)
+
 # Ageing buckets, in days past due. Chosen to match how collections are
 # actually chased rather than a textbook 30/60/90.
 AGEING_BUCKETS = ((0, "not due"), (30, "1-30"), (60, "31-60"),
@@ -205,6 +222,31 @@ def upsert_ledgers(ledgers=None):
             "last_synced": stamp,
         }
 
+        # Distributor-facing master fields, shipped by newer agents. Only
+        # written when the payload actually carries them: an older agent that
+        # never fetched these must not blank what a newer run stored.
+        _DIST_FIELDS = ("credit_limit", "credit_days", "credit_period",
+                        "price_level", "mobile", "address", "mailing_name",
+                        "state", "pincode", "country", "gst_registration_type",
+                        "alias", "agent", "agent_source")
+        if any(k in row for k in _DIST_FIELDS):
+            values.update({
+                "credit_limit": flt(row.get("credit_limit")),
+                "credit_days": int(row.get("credit_days") or 0),
+                "credit_period": row.get("credit_period") or "",
+                "price_level": row.get("price_level") or "",
+                "mobile": row.get("mobile") or "",
+                "address": row.get("address") or "",
+                "mailing_name": row.get("mailing_name") or "",
+                "state": row.get("state") or "",
+                "pincode": row.get("pincode") or "",
+                "country": row.get("country") or "",
+                "gst_registration_type": row.get("gst_registration_type") or "",
+                "alias": row.get("alias") or "",
+                "agent": row.get("agent") or "",
+                "agent_source": row.get("agent_source") or "",
+            })
+
         # Resolve the existing row by FIELDS, never by docname. The docname
         # formula has already changed once (company scoping), and a lookup
         # keyed on it silently failed to see every row written under the old
@@ -338,8 +380,11 @@ def upsert_vouchers(vouchers=None):
             "voucher_date": row.get("date") or row.get("voucher_date"),
             "party": row.get("party") or "",
             "narration": row.get("narration") or "",
+            "reference": row.get("reference") or "",
+            "reference_date": row.get("reference_date") or None,
             "amount": flt(row.get("amount")),
             "is_cancelled": 1 if row.get("is_cancelled") else 0,
+            "is_optional": 1 if row.get("is_optional") else 0,
             "alter_id": alter_id,
             "last_synced": stamp,
         }
@@ -411,21 +456,29 @@ def upsert_bills(bills=None, company=None, replace=1):
     rows = _parse_payload(bills, "bills")
     stamp = now_datetime()
 
-    if int(replace or 0) and company:
+    # Never clear a company's bills for an empty payload. The snapshot is
+    # destructive by design, so an upstream fetch that returns nothing would
+    # otherwise wipe a good mirror and report success.
+    if int(replace or 0) and company and rows:
         frappe.db.delete("Tally Bill", {"company": company})
 
-    # Party group and GSTIN are denormalised so ageing can be sliced by agent
-    # without a join per row.
+    # Party groups and GSTIN are denormalised so ageing can be sliced without
+    # a join per row. BOTH groups are needed and they are not interchangeable:
+    # `primary_group` is the root ("Sundry Debtors") that separates receivable
+    # from payable, while `parent_group` is the immediate group ("AGENT RK")
+    # that ageing filters on by agent.
     parties = {}
     if company:
         for l in frappe.get_all(
             "Tally Ledger", filters={"company": company},
-            fields=["ledger_name", "primary_group", "gstin"], limit_page_length=0,
+            fields=["ledger_name", "parent_group", "primary_group", "gstin"],
+            limit_page_length=0,
         ):
-            parties[l.ledger_name] = (l.primary_group, l.gstin)
+            parties[l.ledger_name] = (l.parent_group, l.primary_group, l.gstin)
 
     created = 0
     errors: list = []
+    unmatched: set = set()
     for i, row in enumerate(rows):
         party = (row.get("party") or "").strip()
         ref = (row.get("name") or "").strip()
@@ -434,7 +487,9 @@ def upsert_bills(bills=None, company=None, replace=1):
         savepoint = f"bill_{i}"
         try:
             frappe.db.savepoint(savepoint)
-            grp, gstin = parties.get(party, ("", ""))
+            parent, grp, gstin = parties.get(party, ("", "", ""))
+            if not grp:
+                unmatched.add(party)
             doc = frappe.get_doc({
                 "doctype": "Tally Bill",
                 "party": party,
@@ -447,6 +502,7 @@ def upsert_bills(bills=None, company=None, replace=1):
                 "opening_amount": flt(row.get("opening")),
                 "outstanding": flt(row.get("closing")),
                 "is_advance": 1 if row.get("is_advance") else 0,
+                "parent_group": parent or "",
                 "primary_group": grp or "",
                 "gstin": gstin or "",
                 "last_synced": stamp,
@@ -458,20 +514,36 @@ def upsert_bills(bills=None, company=None, replace=1):
             created += 1
             frappe.db.release_savepoint(savepoint)
         except Exception as exc:
-            try:
-                frappe.db.rollback(save_point=savepoint)
-            except Exception:
-                frappe.db.rollback()
-                break
             if len(errors) < 50:
                 errors.append({"bill": f"{party} / {ref}"[:140],
                                "error": f"{type(exc).__name__}: {exc}"[:300]})
+            try:
+                frappe.db.rollback(save_point=savepoint)
+            except Exception as rb:
+                # The savepoint is gone, so the whole transaction unwinds and
+                # every bill inserted in this batch is lost. Record it before
+                # leaving — a silent break here reported success on zero rows.
+                frappe.db.rollback()
+                errors.append({
+                    "bill": "(batch aborted)",
+                    "error": f"Rollback to savepoint failed after {created} "
+                             f"insert(s); the whole batch was discarded: "
+                             f"{type(rb).__name__}: {rb}"[:300],
+                })
+                created = 0
+                break
 
     frappe.db.commit()
-    out = {"created": created}
+    out = {"created": created, "received": len(rows)}
     if errors:
         out["failed"] = len(errors)
         out["errors"] = errors
+    if unmatched:
+        # A bill whose party is missing from Tally Ledger gets no group, and
+        # every ageing query filters on group — so it would be mirrored and
+        # then be invisible. Surface it rather than let it vanish.
+        out["unmatched_parties"] = sorted(unmatched)[:50]
+        out["unmatched_count"] = len(unmatched)
     return out
 
 
@@ -654,14 +726,14 @@ def companies():
     """
     _require_reader()
     rows = frappe.db.sql(
-        """
+        f"""
         SELECT company,
                COUNT(*) AS voucher_count,
                MIN(voucher_date) AS first_voucher,
                MAX(voucher_date) AS last_voucher,
                SUM(amount) AS total_value
         FROM `tabTally Voucher`
-        WHERE is_cancelled = 0 AND company != ''
+        WHERE {_POSTED} AND company != ''
         GROUP BY company
         ORDER BY MIN(voucher_date) ASC
         """,
@@ -714,10 +786,10 @@ def compare_ledger(ledger_name=None, limit=50):
     # Activity per company, so a year with no movement is visibly distinct
     # from a year that simply carried a balance forward.
     activity = dict(frappe.db.sql(
-        """
+        f"""
         SELECT v.company, COUNT(*) FROM `tabTally Voucher Entry` e
         INNER JOIN `tabTally Voucher` v ON v.name = e.parent
-        WHERE e.ledger = %(n)s AND v.is_cancelled = 0
+        WHERE e.ledger = %(n)s AND {_POSTED_V}
           AND v.voucher_type NOT IN %(order_types)s
         GROUP BY v.company
         """,
@@ -863,7 +935,7 @@ def ledger_statement(ledger=None, from_date=None, to_date=None, limit=500, compa
 
     # Orders excluded: a statement's running total must reconcile to the
     # closing balance shown beside it, and orders post nothing in Tally.
-    conds = ["e.ledger = %(ledger)s", "v.is_cancelled = 0", _NOT_ORDER_V]
+    conds = ["e.ledger = %(ledger)s", _POSTED_V, _NOT_ORDER_V]
     params: dict[str, Any] = {"ledger": ledger, "limit": _limit(limit, 500),
                               "order_types": ORDER_TYPES}
     _company_clause(master.company, conds, params, col="v.company")
@@ -922,7 +994,7 @@ def ledger_statement(ledger=None, from_date=None, to_date=None, limit=500, compa
 def day_book(from_date=None, to_date=None, voucher_type=None, party=None, limit=200, company=None):
     """Vouchers in a date range — the 'what happened' query."""
     _require_reader()
-    conds = ["is_cancelled = 0"]
+    conds = [_POSTED]
     params: dict[str, Any] = {"limit": _limit(limit, 200)}
     if from_date:
         conds.append("voucher_date >= %(from_date)s")
@@ -988,9 +1060,25 @@ def trial_balance(group=None, company=None):
         """,
         params, as_dict=True,
     )
-    total_debit = sum(flt(r.debit) for r in rows)
-    total_credit = sum(flt(r.credit) for r in rows)
-    return {
+    # Profit & Loss A/c is a BALANCING FIGURE, not a posting group: it already
+    # summarises the Sales, Purchase, Direct and Indirect ledgers that appear
+    # beside it. Counting both double-counts the year's result.
+    #
+    # Tally files it under the reserved primary group "Primary", which no
+    # ordinary ledger uses, so the group name identifies it without matching on
+    # an English caption that a renamed ledger could break.
+    #
+    # Measured on (26-27), 2026-08-15: the headline "trial balance is out by
+    # ₹32.6cr" was TWO faults stacked. Most of it was simply summing all nine
+    # company files together — scoped to one file the difference was
+    # −₹16.41cr, of which ₹15.07cr was this single ledger. Excluding it leaves
+    # ~₹1.34cr genuinely unexplained, which is a real but ordinary-sized gap.
+    balancing = [r for r in rows if (r.get("group") or "") in BALANCING_GROUPS]
+    posting = [r for r in rows if (r.get("group") or "") not in BALANCING_GROUPS]
+
+    total_debit = sum(flt(r.debit) for r in posting)
+    total_credit = sum(flt(r.credit) for r in posting)
+    out = {
         "company_filter": company or "all companies",
         "note": ("Grouped by company. A trial balance is only meaningful within "
                  "ONE company file — do not sum across years."),
@@ -999,13 +1087,24 @@ def trial_balance(group=None, company=None):
         "total_credit": round(total_credit, 2),
         "difference": round(total_debit - total_credit, 2),
     }
+    if balancing:
+        # Shown, never hidden — it is a real balance and the user may be
+        # looking for it. It is simply not part of the cross-check.
+        out["balancing_figures"] = balancing
+        out["balancing_note"] = (
+            "Profit & Loss A/c (group 'Primary') is listed in `rows` but is "
+            "EXCLUDED from total_debit/total_credit/difference: it restates "
+            "the revenue and expense ledgers already counted above, so "
+            "including it would double-count the year's result."
+        )
+    return out
 
 
 @frappe.whitelist(methods=["GET"])
 def summary_by_voucher_type(from_date=None, to_date=None, company=None):
     """Volume and value per voucher type — the shape of the period."""
     _require_reader()
-    conds = ["is_cancelled = 0"]
+    conds = [_POSTED]
     params: dict[str, Any] = {}
     if from_date:
         conds.append("voucher_date >= %(from_date)s")
@@ -1116,11 +1215,14 @@ def search_items(query=None, company=None, group=None, limit=25):
                closing_value, hsn_code, gst_rate
         FROM `tabTally Stock Item`
         WHERE {' AND '.join(conds)}
-        -- Items HOLDING stock first, by magnitude. Ordering on the raw value
-        -- put them LAST: the item export currently sign-flips the value of
-        -- stocked finished goods, so `closing_value DESC` floated the dead
-        -- zero rows to the top — and with the row cap, a style with 249
-        -- boxes on hand answered as "0.00 across all variants".
+        -- Items HOLDING stock first, by magnitude. ABS() is kept deliberately
+        -- even though the agent now un-flips the exported value sign (see
+        -- fetch_stock_items): genuinely negative stock — 46 items on this
+        -- book, issued beyond what was received — is exactly what someone
+        -- searching for an item wants to see, not something to sort to the
+        -- bottom. Before the sign fix, `closing_value DESC` floated the dead
+        -- zero rows to the top and a style with 249 boxes on hand answered
+        -- as "0.00 across all variants".
         ORDER BY ABS(closing_qty) DESC, ABS(closing_value) DESC, item_name
         LIMIT %(limit)s
         """,
@@ -1237,10 +1339,12 @@ def ageing(company=None, party=None, group=None, min_days=None, min_amount=0,
         conds.append("party = %(party)s")
         params["party"] = party
     if group:
-        conds.append("primary_group = %(group)s")
+        # The agent book is the IMMEDIATE group ("AGENT RK"); primary_group is
+        # always the root ("Sundry Debtors"), so filtering it by an agent name
+        # matched nothing and every agent-scoped ageing came back empty.
+        conds.append("parent_group = %(group)s")
         params["group"] = group
-    else:
-        conds.append("primary_group IN %(groups)s")
+    conds.append("primary_group IN %(groups)s")
     if min_days is not None:
         conds.append("overdue_days >= %(min_days)s")
         params["min_days"] = int(min_days)
@@ -1288,7 +1392,9 @@ def ageing_summary(company=None, by="group", party_type="receivable", limit=100)
     _require_reader()
     groups = RECEIVABLE_GROUPS if party_type == "receivable" else PAYABLE_GROUPS
     sign = ">" if party_type == "receivable" else "<"
-    col = "primary_group" if by == "group" else "party"
+    # "by group" means by agent book, which is the immediate group. Rolling up
+    # on primary_group would put every debtor in one "Sundry Debtors" row.
+    col = "parent_group" if by == "group" else "party"
 
     conds = [f"outstanding {sign} 0", "is_advance = 0",
              "primary_group IN %(groups)s"]
@@ -1407,7 +1513,7 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
     _require_reader()
     # Orders excluded: they post nothing, so they cannot unbalance the books —
     # any non-zero net on an order row is noise that buries the real breaks.
-    conds = ["v.is_cancelled = 0", _NOT_ORDER_V]
+    conds = [_POSTED_V, _NOT_ORDER_V]
     params: dict[str, Any] = {"tol": flt(tolerance), "limit": _limit(limit, 100),
                               "order_types": ORDER_TYPES}
     if from_date:
@@ -1788,3 +1894,633 @@ def mark_order_result(order_key=None, status=None, tally_vch_number=None, error=
     frappe.db.set_value("Tally Order Queue", order_key, values)
     frappe.db.commit()
     return {"ok": True, "name": order_key, "from": current, "status": status}
+
+
+# ===========================================================================
+# Distributor mirror ingestion (sync agent -> Frappe).
+#
+# Sales orders, invoices, delivery notes and receipts follow the voucher
+# pattern: keyed on (company, guid), AlterID short-circuit, savepoint per
+# row. Child lines are replaced wholesale on update — Tally re-exports the
+# complete voucher, so diffing lines would only invent a place for state to
+# rot.
+# ===========================================================================
+
+def _party_groups(company: str) -> dict:
+    """party name -> immediate group, for denormalising onto mirrored docs."""
+    if not company:
+        return {}
+    return dict(frappe.db.sql(
+        "SELECT ledger_name, parent_group FROM `tabTally Ledger` "
+        "WHERE company = %(c)s", {"c": company},
+    ))
+
+
+def _upsert_mirror_docs(doctype: str, rows: list, stamp, fields_fn,
+                        lines_field: str = "", label_key: str = "voucher_number"):
+    """
+    Shared engine for the four voucher-shaped mirrors.
+
+    fields_fn(row, company, groups) -> (fields dict, lines list). Returns the
+    usual counters plus the set of (company, order_no) pairs whose fulfilment
+    must be recomputed — the caller decides what to do with them.
+    """
+    created = updated = skipped = 0
+    errors: list = []
+    groups_cache: dict = {}
+    touched: set = set()
+
+    for i, row in enumerate(rows):
+      guid = (row.get("guid") or "").strip()
+      company = (row.get("company") or "").strip()
+      if not guid or not company:
+          continue
+      savepoint = f"dm_{i}"
+      try:
+        frappe.db.savepoint(savepoint)
+        if company not in groups_cache:
+            groups_cache[company] = _party_groups(company)
+        alter_id = row.get("alter_id") or ""
+        existing = frappe.db.get_value(
+            doctype, {"guid": guid, "company": company},
+            ["name", "alter_id"], as_dict=True,
+        )
+        if existing and alter_id and existing.alter_id == alter_id:
+            skipped += 1
+            continue
+
+        fields, lines = fields_fn(row, company, groups_cache[company])
+        fields["last_synced"] = stamp
+
+        if existing:
+            doc = frappe.get_doc(doctype, existing.name)
+            doc.update(fields)
+            if lines_field:
+                doc.set(lines_field, [])
+        else:
+            doc = frappe.get_doc({"doctype": doctype, "guid": guid, **fields})
+            doc.name = _docname(company, guid, guid)
+        if lines_field:
+            for line in lines:
+                doc.append(lines_field, line)
+
+        doc.flags.ignore_permissions = True
+        if existing:
+            doc.save(ignore_permissions=True)
+            updated += 1
+        else:
+            doc.insert(ignore_permissions=True)
+            created += 1
+
+        # Any order number this document names needs its fulfilment redone.
+        for line in lines or []:
+            if line.get("order_no"):
+                touched.add((company, line["order_no"]))
+        for key in ("voucher_number", "reference", "order_ref"):
+            if doctype == "Tally Sales Order" and fields.get(key):
+                touched.add((company, fields[key]))
+        frappe.db.release_savepoint(savepoint)
+      except Exception as exc:
+        try:
+            frappe.db.rollback(save_point=savepoint)
+        except Exception:
+            frappe.db.rollback()
+            errors.append({"doc": guid[:140],
+                           "error": f"{type(exc).__name__}: {exc}"[:300]})
+            errors.append({"doc": "(batch stopped)",
+                           "error": "transaction was rolled back by the database; "
+                                    "remaining rows in this batch were not attempted"})
+            break
+        if len(errors) < 50:
+            errors.append({
+                "doc": f"{row.get(label_key) or ''} / {row.get('party') or ''}".strip()[:140],
+                "company": company[:140],
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+            })
+
+    out = {"created": created, "updated": updated, "unchanged": skipped}
+    if errors:
+        out["failed"] = len(errors)
+        out["errors"] = errors
+    return out, touched
+
+
+def _date_or_none(value):
+    return getdate(value) if value else None
+
+
+def _so_fields(row, company, groups):
+    party = (row.get("party") or "").strip()
+    ref = (row.get("reference") or "").strip()
+    narration = row.get("narration") or ""
+
+    # Join back to the queue: the importer writes the order_key into BOTH the
+    # voucher reference and the narration ("... via Claude (<key>)"), so
+    # either match links a portal-placed order to its Tally voucher. A
+    # hand-punched order matches neither and stays unlinked, correctly.
+    order_key = queue_ref = ""
+    for candidate in (ref, _key_from_narration(narration)):
+        if candidate and frappe.db.exists("Tally Order Queue", candidate):
+            order_key = queue_ref = candidate
+            break
+
+    fields = {
+        "company": company,
+        "voucher_number": row.get("voucher_number") or "",
+        "voucher_date": _date_or_none(row.get("date")),
+        "party": party,
+        "party_group": groups.get(party, ""),
+        "reference": ref,
+        "narration": narration,
+        "amount": flt(row.get("amount")),
+        "is_cancelled": 1 if row.get("is_cancelled") else 0,
+        "is_optional": 1 if row.get("is_optional") else 0,
+        "order_status": "Cancelled" if row.get("is_cancelled") else "Open",
+        "order_key": order_key,
+        "queue_ref": queue_ref,
+        "alter_id": row.get("alter_id") or "",
+    }
+    lines = [{
+        "item_name": (l.get("item_name") or "").strip(),
+        "size_batch": str(l.get("size_batch") or "").strip(),
+        "godown": l.get("godown") or "",
+        "qty": flt(l.get("qty")),
+        "unit": l.get("unit") or "",
+        "billed_qty": flt(l.get("billed_qty")),
+        "rate": flt(l.get("rate")),
+        "rate_unit": l.get("rate_unit") or "",
+        "discount": flt(l.get("discount")),
+        "discount2": flt(l.get("discount2")),
+        "amount": flt(l.get("amount")),
+        "due_date": _date_or_none(l.get("due_date")),
+        "order_no": l.get("order_no") or "",
+        "preclosed_qty": flt(l.get("preclosed_qty")),
+    } for l in (row.get("lines") or []) if l.get("item_name")]
+    return fields, lines
+
+
+_NARRATION_KEY = None
+
+
+def _key_from_narration(narration: str) -> str:
+    """The importer's '... via Claude (<order_key>).' convention."""
+    global _NARRATION_KEY
+    if _NARRATION_KEY is None:
+        import re
+        _NARRATION_KEY = re.compile(r"via Claude \(([^)]+)\)")
+    m = _NARRATION_KEY.search(narration or "")
+    return m.group(1).strip() if m else ""
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_sales_orders(orders=None):
+    """Mirror Sales Order vouchers, one line per (item, size). Idempotent."""
+    _require_writer()
+    rows = _parse_payload(orders, "orders")
+    stamp = now_datetime()
+    out, touched = _upsert_mirror_docs(
+        "Tally Sales Order", rows, stamp, _so_fields, lines_field="lines")
+    out["fulfilment"] = _recompute_fulfilment(touched)
+    frappe.db.commit()
+    return out
+
+
+def _invoice_fields(row, company, groups):
+    party = (row.get("party") or "").strip()
+    fields = {
+        "company": company,
+        "invoice_no": row.get("invoice_no") or row.get("voucher_number") or "",
+        "voucher_date": _date_or_none(row.get("date")),
+        "party": party,
+        "party_group": groups.get(party, ""),
+        "amount": flt(row.get("amount")),
+        "taxable_value": flt(row.get("taxable_value")),
+        "cgst": flt(row.get("cgst")),
+        "sgst": flt(row.get("sgst")),
+        "igst": flt(row.get("igst")),
+        "cess": flt(row.get("cess")),
+        "round_off": flt(row.get("round_off")),
+        "reference": row.get("reference") or "",
+        "bill_refs": row.get("bill_refs") or "",
+        "is_cancelled": 1 if row.get("is_cancelled") else 0,
+        "is_optional": 1 if row.get("is_optional") else 0,
+        "narration": row.get("narration") or "",
+        "alter_id": row.get("alter_id") or "",
+    }
+    lines = [{
+        "item_name": (l.get("item_name") or "").strip(),
+        "size_batch": str(l.get("size_batch") or "").strip(),
+        "godown": l.get("godown") or "",
+        "qty": flt(l.get("qty")),
+        "unit": l.get("unit") or "",
+        "rate": flt(l.get("rate")),
+        "rate_unit": l.get("rate_unit") or "",
+        "discount": flt(l.get("discount")),
+        "discount2": flt(l.get("discount2")),
+        "amount": flt(l.get("amount")),
+        "order_no": l.get("order_no") or "",
+        "order_due_date": _date_or_none(l.get("due_date")),
+    } for l in (row.get("lines") or []) if l.get("item_name")]
+    return fields, lines
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_invoices(invoices=None):
+    """Mirror Sales invoices with GST breakup and lines. Idempotent."""
+    _require_writer()
+    rows = _parse_payload(invoices, "invoices")
+    stamp = now_datetime()
+    out, touched = _upsert_mirror_docs(
+        "Tally Invoice", rows, stamp, _invoice_fields,
+        lines_field="lines", label_key="invoice_no")
+    # An invoice against an order changes that order's delivered/pending.
+    out["fulfilment"] = _recompute_fulfilment(touched)
+    frappe.db.commit()
+    return out
+
+
+def _dn_fields(row, company, groups):
+    party = (row.get("party") or "").strip()
+    fields = {
+        "company": company,
+        "voucher_number": row.get("voucher_number") or "",
+        "voucher_date": _date_or_none(row.get("date")),
+        "party": party,
+        "party_group": groups.get(party, ""),
+        "order_ref": row.get("order_ref") or row.get("reference") or "",
+        "vehicle_no": row.get("vehicle_no") or "",
+        "lr_no": row.get("lr_no") or "",
+        "dispatched_through": row.get("dispatched_through") or "",
+        "destination": row.get("destination") or "",
+        "is_cancelled": 1 if row.get("is_cancelled") else 0,
+        "narration": row.get("narration") or "",
+        "alter_id": row.get("alter_id") or "",
+    }
+    lines = [{
+        "item_name": (l.get("item_name") or "").strip(),
+        "size_batch": str(l.get("size_batch") or "").strip(),
+        "godown": l.get("godown") or "",
+        "qty": flt(l.get("qty")),
+        "unit": l.get("unit") or "",
+        "rate": flt(l.get("rate")),
+        "rate_unit": l.get("rate_unit") or "",
+        "amount": flt(l.get("amount")),
+        "order_no": l.get("order_no") or "",
+        "order_due_date": _date_or_none(l.get("due_date")),
+    } for l in (row.get("lines") or []) if l.get("item_name")]
+    return fields, lines
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_delivery_notes(notes=None):
+    """Mirror delivery notes, for books that issue them. Idempotent."""
+    _require_writer()
+    rows = _parse_payload(notes, "notes")
+    stamp = now_datetime()
+    out, touched = _upsert_mirror_docs(
+        "Tally Delivery Note", rows, stamp, _dn_fields, lines_field="lines")
+    out["fulfilment"] = _recompute_fulfilment(touched)
+    frappe.db.commit()
+    return out
+
+
+def _receipt_fields(row, company, groups):
+    party = (row.get("party") or "").strip()
+    fields = {
+        "company": company,
+        "voucher_number": row.get("voucher_number") or "",
+        "voucher_date": _date_or_none(row.get("date")),
+        "party": party,
+        "party_group": groups.get(party, ""),
+        "amount": flt(row.get("amount")),
+        "mode": row.get("mode") or "",
+        "instrument_no": row.get("instrument_no") or "",
+        "instrument_date": _date_or_none(row.get("instrument_date")),
+        "transaction_type": row.get("transaction_type") or "",
+        "narration": row.get("narration") or "",
+        "is_cancelled": 1 if row.get("is_cancelled") else 0,
+        "alter_id": row.get("alter_id") or "",
+    }
+    allocations = [{
+        "bill_ref": a.get("bill_ref") or "",
+        "bill_type": a.get("bill_type") or "",
+        "amount": flt(a.get("amount")),
+    } for a in (row.get("allocations") or [])]
+    return fields, allocations
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_receipts(receipts=None):
+    """Mirror receipts with bill-wise allocations. Idempotent."""
+    _require_writer()
+    rows = _parse_payload(receipts, "receipts")
+    stamp = now_datetime()
+    out, _ = _upsert_mirror_docs(
+        "Tally Receipt", rows, stamp, _receipt_fields, lines_field="allocations")
+    frappe.db.commit()
+    return out
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_stock_batches(batches=None, company=None):
+    """
+    Merge harvested per-size stock balances.
+
+    NOT a destructive snapshot: each row is the newest voucher-dated balance
+    for one (item, size), so an older observation must never overwrite a
+    newer one — replays are safe in either direction.
+    """
+    _require_writer()
+    rows = _parse_payload(batches, "batches")
+    stamp = now_datetime()
+    written = skipped_stale = 0
+    errors: list = []
+
+    for i, row in enumerate(rows):
+        item = (row.get("item_name") or "").strip()
+        size = str(row.get("batch_name") or row.get("size_batch") or "").strip()
+        comp = (row.get("company") or company or "").strip()
+        if not item or not size or not comp:
+            continue
+        savepoint = f"sb_{i}"
+        try:
+            frappe.db.savepoint(savepoint)
+            docname = _docname(comp, f"{item}|{size}")
+            as_of = row.get("as_of") or None
+            existing = frappe.db.get_value(
+                "Tally Stock Batch", docname, ["name", "as_of"], as_dict=True)
+            if existing and existing.as_of and as_of and str(existing.as_of) > str(as_of):
+                skipped_stale += 1
+                frappe.db.release_savepoint(savepoint)
+                continue
+            values = {
+                "item_name": item,
+                "batch_name": size,
+                "company": comp,
+                "closing_qty": flt(row.get("closing_qty")),
+                "closing_qty_unit": row.get("closing_qty_unit") or "",
+                "as_of": getdate(as_of) if as_of else None,
+                "source_voucher": row.get("source_voucher") or "",
+                "last_synced": stamp,
+            }
+            if existing:
+                frappe.db.set_value("Tally Stock Batch", docname, values,
+                                    update_modified=False)
+            else:
+                doc = frappe.get_doc({"doctype": "Tally Stock Batch", **values})
+                doc.name = docname
+                doc.insert(ignore_permissions=True)
+            written += 1
+            frappe.db.release_savepoint(savepoint)
+        except Exception as exc:
+            try:
+                frappe.db.rollback(save_point=savepoint)
+            except Exception:
+                frappe.db.rollback()
+                break
+            if len(errors) < 50:
+                errors.append({"row": f"{item}/{size}"[:140],
+                               "error": f"{type(exc).__name__}: {exc}"[:300]})
+
+    frappe.db.commit()
+    out = {"written": written, "stale_skipped": skipped_stale}
+    if errors:
+        out["failed"] = len(errors)
+        out["errors"] = errors
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Fulfilment: delivered vs pending, computed here and nowhere else
+# ---------------------------------------------------------------------------
+
+def _unit_factors(company: str) -> dict:
+    """unit -> (base_unit, conversion) for one company, from Tally Unit."""
+    rows = frappe.get_all(
+        "Tally Unit", filters={"company": company},
+        fields=["unit_name", "base_units", "conversion"], limit_page_length=0)
+    return {r.unit_name: (r.base_units or "", flt(r.conversion)) for r in rows}
+
+
+def _to_unit(qty: float, unit: str, target: str, units: dict) -> "float | None":
+    """
+    Convert qty between units through the compound-unit chain (Box -> Dzn ->
+    Pcs). None when no chain connects them — the caller must then refuse to
+    compare rather than compare wrongly.
+    """
+    if not unit or not target or unit == target:
+        return qty
+    factor, cur = 1.0, unit
+    for _ in range(6):
+        base, conv = units.get(cur, ("", 0.0))
+        if not base or not conv:
+            return None
+        factor *= conv
+        cur = base
+        if cur == target:
+            return qty * factor
+    return None
+
+
+def _recompute_fulfilment(touched: set) -> dict:
+    """
+    Recompute delivered/pending per line and the derived stage, for every
+    (company, order_no) pair touched by an upsert.
+
+    Delivered quantity is drawn from invoice lines (this book bills what it
+    ships) and delivery-note lines where they exist; per line the LARGER of
+    the two sources wins, because when both documents cover the same goods,
+    summing them would double-count.
+    """
+    if not touched:
+        return {"orders": 0}
+
+    done = 0
+    units_cache: dict = {}
+    for company, order_no in touched:
+        so_name = frappe.db.get_value(
+            "Tally Sales Order",
+            {"company": company, "voucher_number": order_no}, "name")
+        if not so_name:
+            continue
+        if company not in units_cache:
+            units_cache[company] = _unit_factors(company)
+        units = units_cache[company]
+
+        delivered: dict = {}       # (item, size) -> {unit: qty}
+        value_delivered = 0.0
+        for table, parent in (("Tally Invoice Line", "Tally Invoice"),
+                              ("Tally Delivery Note Line", "Tally Delivery Note")):
+            rows = frappe.db.sql(
+                f"""
+                SELECT l.item_name, l.size_batch, l.unit,
+                       SUM(l.qty) AS qty, SUM(l.amount) AS amount
+                FROM `tab{table}` l
+                INNER JOIN `tab{parent}` p ON p.name = l.parent
+                WHERE p.company = %(company)s AND l.order_no = %(order_no)s
+                  AND p.is_cancelled = 0
+                GROUP BY l.item_name, l.size_batch, l.unit
+                """,
+                {"company": company, "order_no": order_no}, as_dict=True,
+            )
+            per_source: dict = {}
+            for r in rows:
+                key = (r.item_name, r.size_batch)
+                per_source.setdefault(key, {})
+                per_source[key][r.unit or ""] = (
+                    per_source[key].get(r.unit or "", 0.0) + flt(r.qty))
+                if table == "Tally Invoice Line":
+                    value_delivered += flt(r.amount)
+            for key, by_unit in per_source.items():
+                cur = delivered.setdefault(key, {})
+                for unit, qty in by_unit.items():
+                    # max per source family, not sum across them
+                    cur[unit] = max(cur.get(unit, 0.0), qty)
+
+        doc = frappe.get_doc("Tally Sales Order", so_name)
+        total_ordered = total_pending = 0.0
+        unresolved = 0
+        for line in doc.lines:
+            key = (line.item_name, line.size_batch)
+            got = 0.0
+            for unit, qty in delivered.get(key, {}).items():
+                converted = _to_unit(qty, unit, line.unit or unit, units)
+                if converted is None:
+                    unresolved += 1
+                    continue
+                got += converted
+            pending = max(flt(line.qty) - got, 0.0)
+            frappe.db.set_value("Tally Sales Order Line", line.name,
+                                {"delivered_qty": round(got, 4),
+                                 "pending_qty": round(pending, 4)},
+                                update_modified=False)
+            total_ordered += flt(line.qty)
+            total_pending += pending
+
+        if doc.is_cancelled:
+            status = "Cancelled"
+        elif total_ordered and total_pending <= total_ordered * 0.005:
+            status = "Billed"
+        elif total_pending < total_ordered:
+            status = "Partial"
+        else:
+            status = "Open"
+        frappe.db.set_value("Tally Sales Order", so_name,
+                            {"order_status": status,
+                             "delivered_value": round(value_delivered, 2)},
+                            update_modified=False)
+        done += 1
+        if unresolved:
+            frappe.log_error(
+                title="Fulfilment: unit mismatch",
+                message=f"{company} / {order_no}: {unresolved} delivered line(s) "
+                        f"in a unit with no conversion chain to the ordered "
+                        f"unit were ignored rather than mis-added.")
+    return {"orders": done}
+
+
+# ---------------------------------------------------------------------------
+# Item rates, refreshed from mirrored lines (no extra Tally traffic)
+# ---------------------------------------------------------------------------
+
+def refresh_item_rates(company=None, days=45):
+    """
+    Rebuild Tally Item Rate from recent mirrored order/invoice lines.
+
+    The book has no rate master and no price levels — rates exist only in
+    voucher history. Book-wide row per item: the MOST-SUPPORTED recent
+    (rate, discounts) combination, never merely the newest quote (a lone
+    stray entry must not reprice the catalogue). Party rows only where a
+    party's own most-supported rate differs from the book rate.
+
+    Runs from the scheduler; also callable after a backfill.
+    """
+    companies = ([company] if company else
+                 [r[0] for r in frappe.db.sql(
+                     "SELECT DISTINCT company FROM `tabTally Sales Order`")])
+    stamp = now_datetime()
+    cutoff = add_days(getdate(), -int(days))
+    total = 0
+
+    for comp in companies:
+        rows = frappe.db.sql(
+            """
+            SELECT l.item_name, p.party, l.unit, l.rate, l.rate_unit,
+                   l.discount, l.discount2,
+                   COUNT(*) AS n, MAX(p.voucher_date) AS latest,
+                   MAX(p.voucher_number) AS voucher
+            FROM `tabTally Sales Order Line` l
+            INNER JOIN `tabTally Sales Order` p ON p.name = l.parent
+            WHERE p.company = %(company)s AND p.voucher_date >= %(cutoff)s
+              AND p.is_cancelled = 0 AND l.rate > 0
+            GROUP BY l.item_name, p.party, l.unit, l.rate, l.rate_unit,
+                     l.discount, l.discount2
+            """,
+            {"company": comp, "cutoff": cutoff}, as_dict=True,
+        )
+        if not rows:
+            continue
+
+        # Book-wide winner per item: most lines, then most recent.
+        by_item: dict = {}
+        by_item_party: dict = {}
+        for r in rows:
+            by_item.setdefault(r.item_name, []).append(r)
+            by_item_party.setdefault((r.item_name, r.party), []).append(r)
+
+        def winner(cands):
+            agg: dict = {}
+            for c in cands:
+                k = (c.unit, c.rate, c.rate_unit, c.discount, c.discount2)
+                a = agg.setdefault(k, {"n": 0, "latest": "", "voucher": "", "row": c})
+                a["n"] += c.n
+                if str(c.latest) > str(a["latest"]):
+                    a["latest"], a["voucher"] = str(c.latest), c.voucher
+            return max(agg.values(), key=lambda a: (a["n"], a["latest"]))
+
+        frappe.db.delete("Tally Item Rate", {"company": comp})
+        for item, cands in by_item.items():
+            w = winner(cands)
+            book = w["row"]
+            net = flt(book.rate) * (1 - flt(book.discount) / 100) \
+                                 * (1 - flt(book.discount2) / 100)
+            doc = frappe.get_doc({
+                "doctype": "Tally Item Rate",
+                "item_name": item, "party": "", "company": comp,
+                "rate": flt(book.rate), "unit": book.rate_unit or book.unit,
+                "discount": flt(book.discount), "discount2": flt(book.discount2),
+                "net_rate": round(net, 2),
+                "source_voucher": w["voucher"], "source_date": w["latest"] or None,
+                "observations": w["n"], "last_synced": stamp,
+            })
+            doc.name = _docname(comp, f"{item}|")
+            doc.insert(ignore_permissions=True)
+            total += 1
+
+            # Party overrides, only where they genuinely differ.
+            for (p_item, party), p_cands in by_item_party.items():
+                if p_item != item or not party:
+                    continue
+                pw = winner(p_cands)
+                pr = pw["row"]
+                if (pr.rate, pr.discount, pr.discount2) == \
+                   (book.rate, book.discount, book.discount2):
+                    continue
+                pnet = flt(pr.rate) * (1 - flt(pr.discount) / 100) \
+                                    * (1 - flt(pr.discount2) / 100)
+                pdoc = frappe.get_doc({
+                    "doctype": "Tally Item Rate",
+                    "item_name": item, "party": party, "company": comp,
+                    "rate": flt(pr.rate), "unit": pr.rate_unit or pr.unit,
+                    "discount": flt(pr.discount), "discount2": flt(pr.discount2),
+                    "net_rate": round(pnet, 2),
+                    "source_voucher": pw["voucher"],
+                    "source_date": pw["latest"] or None,
+                    "observations": pw["n"], "last_synced": stamp,
+                })
+                pdoc.name = _docname(comp, f"{item}|{party}")
+                pdoc.insert(ignore_permissions=True)
+                total += 1
+
+    frappe.db.commit()
+    return {"rates": total}

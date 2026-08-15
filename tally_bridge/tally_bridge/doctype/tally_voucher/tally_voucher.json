@@ -15,8 +15,11 @@
   "party",
   "amount",
   "is_cancelled",
+  "is_optional",
   "section_narration",
   "narration",
+  "reference",
+  "reference_date",
   "section_entries",
   "entries",
   "section_meta",
@@ -82,6 +85,13 @@
    "label": "Cancelled"
   },
   {
+   "default": "0",
+   "fieldname": "is_optional",
+   "fieldtype": "Check",
+   "label": "Optional (draft)",
+   "description": "Tally's optional flag: entered but not posted. Excluded from accounting reads."
+  },
+  {
    "fieldname": "section_narration",
    "fieldtype": "Section Break"
   },
@@ -89,6 +99,17 @@
    "fieldname": "narration",
    "fieldtype": "Small Text",
    "label": "Narration"
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "label": "Reference",
+   "search_index": 1
+  },
+  {
+   "fieldname": "reference_date",
+   "fieldtype": "Date",
+   "label": "Reference Date"
   },
   {
    "fieldname": "section_entries",

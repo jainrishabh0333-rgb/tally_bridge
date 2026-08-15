@@ -11,18 +11,36 @@
   "company",
   "parent_group",
   "primary_group",
+  "agent",
+  "agent_source",
   "group_path",
   "column_break_main",
   "gstin",
+  "alias",
+  "gst_registration_type",
   "bill_by_bill",
   "section_balances",
   "opening_balance",
   "column_break_bal",
   "closing_balance",
+  "section_credit",
+  "credit_limit",
+  "credit_days",
+  "column_break_credit",
+  "credit_period",
+  "price_level",
   "section_contact",
   "email",
   "column_break_contact",
   "phone",
+  "mobile",
+  "section_address",
+  "address",
+  "mailing_name",
+  "column_break_address",
+  "state",
+  "pincode",
+  "country",
   "section_meta",
   "guid",
   "master_id",
@@ -57,13 +75,6 @@
    "search_index": 1
   },
   {
-   "fieldname": "group_path",
-   "fieldtype": "Data",
-   "label": "Group Path",
-   "read_only": 1,
-   "description": "Full chain from root to immediate group, for auditing."
-  },
-  {
    "fieldname": "primary_group",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -73,6 +84,29 @@
    "description": "Resolved root group, e.g. Sundry Debtors. Reporting uses this, not the immediate group."
   },
   {
+   "fieldname": "agent",
+   "fieldtype": "Data",
+   "label": "Agent",
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "description": "Who sells to this party. Resolved at sync: the immediate group when the party sits under Sundry Debtors (this book files customers under AGENT RK and the like), or a ledger UDF named Agent/Salesman where one exists."
+  },
+  {
+   "fieldname": "agent_source",
+   "fieldtype": "Select",
+   "label": "Agent From",
+   "options": "\ngroup\nudf",
+   "read_only": 1,
+   "description": "Which of the two answered, so nothing downstream has to re-derive it."
+  },
+  {
+   "fieldname": "group_path",
+   "fieldtype": "Data",
+   "label": "Group Path",
+   "read_only": 1,
+   "description": "Full chain from root to immediate group, for auditing."
+  },
+  {
    "fieldname": "column_break_main",
    "fieldtype": "Column Break"
   },
@@ -80,6 +114,17 @@
    "fieldname": "gstin",
    "fieldtype": "Data",
    "label": "GSTIN"
+  },
+  {
+   "fieldname": "alias",
+   "fieldtype": "Data",
+   "label": "Alias",
+   "description": "Tally's alternate name for the ledger, when one is set."
+  },
+  {
+   "fieldname": "gst_registration_type",
+   "fieldtype": "Data",
+   "label": "GST Registration Type"
   },
   {
    "default": "0",
@@ -108,6 +153,39 @@
    "label": "Closing Balance"
   },
   {
+   "fieldname": "section_credit",
+   "fieldtype": "Section Break",
+   "label": "Credit"
+  },
+  {
+   "fieldname": "credit_limit",
+   "fieldtype": "Currency",
+   "label": "Credit Limit",
+   "description": "As set in Tally. MEASURED 2026-08-15: not set on any of the 123 ledgers sampled under AGENT RK, so the portal reports 'not set' rather than inventing a limit."
+  },
+  {
+   "fieldname": "credit_days",
+   "fieldtype": "Int",
+   "label": "Credit Days",
+   "description": "Parsed from the ledger's credit period."
+  },
+  {
+   "fieldname": "column_break_credit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "credit_period",
+   "fieldtype": "Data",
+   "label": "Credit Period",
+   "description": "Verbatim from Tally, e.g. \"45 Days\"."
+  },
+  {
+   "fieldname": "price_level",
+   "fieldtype": "Data",
+   "label": "Price Level",
+   "description": "Tally price level for this party. Empty in this book \u2014 there is no price list in use; catalogue rates come from Tally Item Rate instead."
+  },
+  {
    "fieldname": "section_contact",
    "fieldtype": "Section Break",
    "label": "Contact"
@@ -126,6 +204,48 @@
    "fieldname": "phone",
    "fieldtype": "Data",
    "label": "Phone"
+  },
+  {
+   "fieldname": "mobile",
+   "fieldtype": "Data",
+   "label": "Mobile",
+   "search_index": 1,
+   "description": "Used to match an OTP login to this party."
+  },
+  {
+   "fieldname": "section_address",
+   "fieldtype": "Section Break",
+   "label": "Address"
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Small Text",
+   "label": "Address"
+  },
+  {
+   "fieldname": "mailing_name",
+   "fieldtype": "Data",
+   "label": "Mailing Name"
+  },
+  {
+   "fieldname": "column_break_address",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "pincode",
+   "fieldtype": "Data",
+   "label": "PIN Code"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "label": "Country"
   },
   {
    "collapsible": 1,
@@ -165,7 +285,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-08-08 00:00:00.000000",
+ "modified": "2026-08-15 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tally Bridge",
  "name": "Tally Ledger",

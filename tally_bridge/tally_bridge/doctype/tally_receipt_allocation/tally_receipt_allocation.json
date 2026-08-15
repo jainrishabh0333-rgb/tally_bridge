@@ -1,0 +1,51 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "bill_ref",
+  "bill_type",
+  "amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "bill_ref",
+   "fieldtype": "Data",
+   "label": "Bill Reference",
+   "in_list_view": 1,
+   "columns": 4,
+   "search_index": 1,
+   "description": "Empty means the receipt was taken on account, not against a named bill. Labelled as such rather than dropped."
+  },
+  {
+   "fieldname": "bill_type",
+   "fieldtype": "Data",
+   "label": "Type",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "in_list_view": 1,
+   "columns": 3
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Receipt Allocation",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "istable": 1
+}

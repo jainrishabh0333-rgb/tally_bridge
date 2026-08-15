@@ -1,0 +1,156 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_name",
+  "party",
+  "company",
+  "cb_rate",
+  "rate",
+  "unit",
+  "discount",
+  "discount2",
+  "net_rate",
+  "sec_src",
+  "source_voucher",
+  "source_date",
+  "observations",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item",
+   "in_list_view": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "search_index": 1,
+   "description": "Empty means the book-wide rate. A party row is written only when that party has actually been charged differently."
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_rate",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Float",
+   "label": "Rate",
+   "in_list_view": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Per Unit",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "discount",
+   "fieldtype": "Float",
+   "label": "Discount %",
+   "precision": "2"
+  },
+  {
+   "fieldname": "discount2",
+   "fieldtype": "Float",
+   "label": "Second Discount %",
+   "precision": "2"
+  },
+  {
+   "fieldname": "net_rate",
+   "fieldtype": "Float",
+   "label": "Net Rate",
+   "precision": "2",
+   "in_list_view": 1,
+   "description": "Rate after the full discount chain \u2014 what the line actually prices at."
+  },
+  {
+   "fieldname": "sec_src",
+   "fieldtype": "Section Break",
+   "label": "Source",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "source_voucher",
+   "fieldtype": "Data",
+   "label": "Harvested From",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_date",
+   "fieldtype": "Date",
+   "label": "As Of",
+   "read_only": 1
+  },
+  {
+   "fieldname": "observations",
+   "fieldtype": "Int",
+   "label": "Supporting Lines",
+   "read_only": 1,
+   "description": "How many recent lines carried this rate. The most-supported rate wins, never the first one seen."
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Item Rate",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "autoname": "Prompt",
+ "title_field": "item_name",
+ "description": "Selling rates harvested from voucher history. This book has no price list and no price levels \u2014 rates live only in past vouchers, so this is where a catalogue price can honestly come from.",
+ "search_fields": "item_name,party"
+}

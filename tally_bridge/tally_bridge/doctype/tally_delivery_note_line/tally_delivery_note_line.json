@@ -1,0 +1,110 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_name",
+  "size_batch",
+  "qty",
+  "unit",
+  "rate",
+  "amount",
+  "cb_iline",
+  "rate_unit",
+  "godown",
+  "order_no",
+  "order_due_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item",
+   "in_list_view": 1,
+   "columns": 3,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "size_batch",
+   "fieldtype": "Data",
+   "label": "Size (Batch)",
+   "in_list_view": 1,
+   "columns": 1,
+   "search_index": 1,
+   "description": "Sizes are batch allocations in Tally: the batch name IS the size, e.g. \"28\" or \"XL\"."
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "label": "Qty",
+   "in_list_view": 1,
+   "columns": 1,
+   "precision": "4"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Unit",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Float",
+   "label": "Rate",
+   "in_list_view": 1,
+   "columns": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "cb_iline",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate_unit",
+   "fieldtype": "Data",
+   "label": "Rate Unit"
+  },
+  {
+   "fieldname": "godown",
+   "fieldtype": "Data",
+   "label": "Godown"
+  },
+  {
+   "fieldname": "order_no",
+   "fieldtype": "Data",
+   "label": "Against Order No",
+   "search_index": 1,
+   "description": "From the batch allocation. This is the join that makes delivered-vs-pending per size possible."
+  },
+  {
+   "fieldname": "order_due_date",
+   "fieldtype": "Date",
+   "label": "Order Due Date"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Delivery Note Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "istable": 1
+}

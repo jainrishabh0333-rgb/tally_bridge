@@ -1,0 +1,212 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "voucher_number",
+  "voucher_date",
+  "company",
+  "cb_head",
+  "party",
+  "party_group",
+  "sec_amounts",
+  "amount",
+  "mode",
+  "cb_pay",
+  "instrument_no",
+  "instrument_date",
+  "transaction_type",
+  "narration",
+  "is_cancelled",
+  "sec_alloc",
+  "allocations",
+  "sec_meta",
+  "guid",
+  "master_id",
+  "cb_meta",
+  "alter_id",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "voucher_number",
+   "fieldtype": "Data",
+   "label": "Receipt No",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "voucher_date",
+   "fieldtype": "Date",
+   "label": "Receipt Date",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1,
+   "description": "Ledger name exactly as Tally holds it. This is what every party-scoped query filters on."
+  },
+  {
+   "fieldname": "party_group",
+   "fieldtype": "Data",
+   "label": "Agent Group",
+   "search_index": 1,
+   "description": "The party's immediate group, denormalised at sync so an agent's book can be sliced without a join per row."
+  },
+  {
+   "fieldname": "sec_amounts",
+   "fieldtype": "Section Break",
+   "label": "Payment"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount Received",
+   "in_list_view": 1,
+   "description": "Positive. Taken from the party's own ledger entry."
+  },
+  {
+   "fieldname": "mode",
+   "fieldtype": "Data",
+   "label": "Received Into",
+   "in_list_view": 1,
+   "description": "The bank or cash ledger on the other side of the receipt."
+  },
+  {
+   "fieldname": "cb_pay",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "instrument_no",
+   "fieldtype": "Data",
+   "label": "Instrument / UTR No",
+   "search_index": 1
+  },
+  {
+   "fieldname": "instrument_date",
+   "fieldtype": "Date",
+   "label": "Instrument Date"
+  },
+  {
+   "fieldname": "transaction_type",
+   "fieldtype": "Data",
+   "label": "Transaction Type"
+  },
+  {
+   "fieldname": "narration",
+   "fieldtype": "Small Text",
+   "label": "Narration"
+  },
+  {
+   "fieldname": "is_cancelled",
+   "fieldtype": "Check",
+   "label": "Cancelled",
+   "default": "0"
+  },
+  {
+   "fieldname": "sec_alloc",
+   "fieldtype": "Section Break",
+   "label": "Bills Settled"
+  },
+  {
+   "fieldname": "allocations",
+   "fieldtype": "Table",
+   "label": "Allocations",
+   "options": "Tally Receipt Allocation"
+  },
+  {
+   "fieldname": "sec_meta",
+   "fieldtype": "Section Break",
+   "label": "Tally Metadata",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "guid",
+   "fieldtype": "Data",
+   "label": "Tally GUID",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "master_id",
+   "fieldtype": "Data",
+   "label": "Master ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "alter_id",
+   "fieldtype": "Data",
+   "label": "Alter ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Receipt",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "voucher_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "autoname": "Prompt",
+ "title_field": "party",
+ "description": "Receipts with their bill-wise allocations. MEASURED: receipts in this book carry NO voucher number (25 of 25 sampled were blank), so rows are keyed on GUID and shown by date, amount and bank.",
+ "search_fields": "party,instrument_no"
+}

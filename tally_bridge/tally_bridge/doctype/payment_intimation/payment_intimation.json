@@ -1,0 +1,210 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "party_ledger",
+  "party_name",
+  "company",
+  "cb_pi",
+  "status",
+  "submitted_by",
+  "submitted_at",
+  "sec_payment",
+  "amount",
+  "mode",
+  "cb_pay2",
+  "utr_ref",
+  "paid_on",
+  "note",
+  "sec_bills",
+  "bills",
+  "sec_match",
+  "matched_receipt",
+  "matched_at",
+  "cb_match",
+  "match_note",
+  "idempotency_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "party_ledger",
+   "fieldtype": "Link",
+   "label": "Party (Tally Ledger)",
+   "options": "Tally Ledger",
+   "reqd": 1,
+   "search_index": 1,
+   "read_only": 1,
+   "description": "Set from the session's portal grant. Never from the payload."
+  },
+  {
+   "fieldname": "party_name",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_pi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "options": "Pending Confirmation\nConfirmed\nRejected",
+   "default": "Pending Confirmation",
+   "search_index": 1
+  },
+  {
+   "fieldname": "submitted_by",
+   "fieldtype": "Data",
+   "label": "Submitted By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "submitted_at",
+   "fieldtype": "Datetime",
+   "label": "Submitted At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_payment",
+   "fieldtype": "Section Break",
+   "label": "Payment"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "mode",
+   "fieldtype": "Select",
+   "label": "Mode",
+   "options": "UPI\nNEFT\nRTGS\nIMPS\nCheque\nCash\nOther",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "cb_pay2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "utr_ref",
+   "fieldtype": "Data",
+   "label": "UTR / Reference",
+   "search_index": 1
+  },
+  {
+   "fieldname": "paid_on",
+   "fieldtype": "Date",
+   "label": "Paid On"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  },
+  {
+   "fieldname": "sec_bills",
+   "fieldtype": "Section Break",
+   "label": "Bills Selected"
+  },
+  {
+   "fieldname": "bills",
+   "fieldtype": "Table",
+   "label": "Bills",
+   "options": "Payment Intimation Bill"
+  },
+  {
+   "fieldname": "sec_match",
+   "fieldtype": "Section Break",
+   "label": "Matching",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "matched_receipt",
+   "fieldtype": "Data",
+   "label": "Matched Receipt",
+   "read_only": 1,
+   "description": "Docname of the Tally Receipt this was auto-matched to."
+  },
+  {
+   "fieldname": "matched_at",
+   "fieldtype": "Datetime",
+   "label": "Matched At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_match",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "match_note",
+   "fieldtype": "Small Text",
+   "label": "Match Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "idempotency_key",
+   "fieldtype": "Data",
+   "label": "Idempotency Key",
+   "read_only": 1,
+   "unique": 1,
+   "description": "Client-supplied. Replaying the same key returns the existing row instead of creating a second intimation."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Payment Intimation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "autoname": "Prompt",
+ "title_field": "party_name",
+ "description": "A distributor telling us they have paid. Never an accounting document: it is confirmed only when a matching Tally Receipt arrives on a later sync.",
+ "search_fields": "party_name,utr_ref"
+}

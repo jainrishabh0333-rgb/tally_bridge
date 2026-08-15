@@ -1,0 +1,244 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "voucher_number",
+  "voucher_date",
+  "company",
+  "cb_head",
+  "party",
+  "party_group",
+  "sec_status",
+  "order_status",
+  "amount",
+  "delivered_value",
+  "cb_status",
+  "is_cancelled",
+  "is_optional",
+  "reference",
+  "narration",
+  "sec_link",
+  "order_key",
+  "cb_link",
+  "queue_ref",
+  "sec_lines",
+  "lines",
+  "sec_meta",
+  "guid",
+  "master_id",
+  "cb_meta",
+  "alter_id",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "voucher_number",
+   "fieldtype": "Data",
+   "label": "Order No",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "voucher_date",
+   "fieldtype": "Date",
+   "label": "Order Date",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1,
+   "description": "Ledger name exactly as Tally holds it. This is what every party-scoped query filters on."
+  },
+  {
+   "fieldname": "party_group",
+   "fieldtype": "Data",
+   "label": "Agent Group",
+   "search_index": 1,
+   "description": "The party's immediate group, denormalised at sync so an agent's book can be sliced without a join per row."
+  },
+  {
+   "fieldname": "sec_status",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "order_status",
+   "fieldtype": "Select",
+   "label": "Stage",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "options": "Open\nPartial\nDelivered\nBilled\nCancelled\nPre-closed",
+   "search_index": 1,
+   "description": "Derived at sync from delivered vs ordered quantity across the order's lines. Not a Tally field."
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Order Value",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "delivered_value",
+   "fieldtype": "Currency",
+   "label": "Delivered Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "is_cancelled",
+   "fieldtype": "Check",
+   "label": "Cancelled",
+   "default": "0"
+  },
+  {
+   "fieldname": "is_optional",
+   "fieldtype": "Check",
+   "label": "Optional (draft)",
+   "default": "0",
+   "description": "Tally's optional flag: entered but not posted. Excluded from everything a distributor sees."
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "label": "Reference",
+   "description": "The party's own order reference, as typed in Tally."
+  },
+  {
+   "fieldname": "narration",
+   "fieldtype": "Small Text",
+   "label": "Narration"
+  },
+  {
+   "fieldname": "sec_link",
+   "fieldtype": "Section Break",
+   "label": "Portal Link"
+  },
+  {
+   "fieldname": "order_key",
+   "fieldtype": "Data",
+   "label": "Order Key",
+   "search_index": 1,
+   "description": "Idempotency key of the Tally Order Queue row this voucher came from, lifted back out of the narration at sync. Empty when the order was punched by hand in Tally."
+  },
+  {
+   "fieldname": "cb_link",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "queue_ref",
+   "fieldtype": "Link",
+   "label": "Queue Row",
+   "options": "Tally Order Queue",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_lines",
+   "fieldtype": "Section Break",
+   "label": "Lines"
+  },
+  {
+   "fieldname": "lines",
+   "fieldtype": "Table",
+   "label": "Lines",
+   "options": "Tally Sales Order Line"
+  },
+  {
+   "fieldname": "sec_meta",
+   "fieldtype": "Section Break",
+   "label": "Tally Metadata",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "guid",
+   "fieldtype": "Data",
+   "label": "Tally GUID",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "master_id",
+   "fieldtype": "Data",
+   "label": "Master ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "alter_id",
+   "fieldtype": "Data",
+   "label": "Alter ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Sales Order",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "voucher_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "autoname": "Prompt",
+ "title_field": "party",
+ "description": "Sales Orders mirrored from Tally, one line per (item, size). Sizes are batch allocations; delivered and pending quantities are computed here, not read from Tally.",
+ "search_fields": "party,voucher_number"
+}

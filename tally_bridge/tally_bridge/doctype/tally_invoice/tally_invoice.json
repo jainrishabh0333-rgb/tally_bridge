@@ -1,0 +1,254 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "invoice_no",
+  "voucher_date",
+  "company",
+  "cb_head",
+  "party",
+  "party_group",
+  "sec_amounts",
+  "amount",
+  "taxable_value",
+  "round_off",
+  "cb_tax",
+  "cgst",
+  "sgst",
+  "igst",
+  "cess",
+  "sec_refs",
+  "reference",
+  "bill_refs",
+  "cb_refs",
+  "is_cancelled",
+  "is_optional",
+  "narration",
+  "sec_lines",
+  "lines",
+  "sec_meta",
+  "guid",
+  "master_id",
+  "cb_meta",
+  "alter_id",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "invoice_no",
+   "fieldtype": "Data",
+   "label": "Invoice No",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "voucher_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "reqd": 1,
+   "description": "Ledger name exactly as Tally holds it. This is what every party-scoped query filters on."
+  },
+  {
+   "fieldname": "party_group",
+   "fieldtype": "Data",
+   "label": "Agent Group",
+   "search_index": 1,
+   "description": "The party's immediate group, denormalised at sync so an agent's book can be sliced without a join per row."
+  },
+  {
+   "fieldname": "sec_amounts",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Invoice Total",
+   "in_list_view": 1,
+   "description": "Debit-positive, from the party's own ledger entry \u2014 the figure printed on the invoice."
+  },
+  {
+   "fieldname": "taxable_value",
+   "fieldtype": "Currency",
+   "label": "Taxable Value"
+  },
+  {
+   "fieldname": "round_off",
+   "fieldtype": "Currency",
+   "label": "Round Off"
+  },
+  {
+   "fieldname": "cb_tax",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cgst",
+   "fieldtype": "Currency",
+   "label": "CGST"
+  },
+  {
+   "fieldname": "sgst",
+   "fieldtype": "Currency",
+   "label": "SGST"
+  },
+  {
+   "fieldname": "igst",
+   "fieldtype": "Currency",
+   "label": "IGST"
+  },
+  {
+   "fieldname": "cess",
+   "fieldtype": "Currency",
+   "label": "Cess"
+  },
+  {
+   "fieldname": "sec_refs",
+   "fieldtype": "Section Break",
+   "label": "References"
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "label": "Against Order",
+   "search_index": 1,
+   "description": "The order number this invoice fulfils, as Tally holds it in the voucher reference."
+  },
+  {
+   "fieldname": "bill_refs",
+   "fieldtype": "Small Text",
+   "label": "Bill References",
+   "description": "Bill-wise allocations on the party entry, comma separated. These are the refs that appear in outstandings."
+  },
+  {
+   "fieldname": "cb_refs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "is_cancelled",
+   "fieldtype": "Check",
+   "label": "Cancelled",
+   "default": "0"
+  },
+  {
+   "fieldname": "is_optional",
+   "fieldtype": "Check",
+   "label": "Optional (draft)",
+   "default": "0"
+  },
+  {
+   "fieldname": "narration",
+   "fieldtype": "Small Text",
+   "label": "Narration"
+  },
+  {
+   "fieldname": "sec_lines",
+   "fieldtype": "Section Break",
+   "label": "Lines"
+  },
+  {
+   "fieldname": "lines",
+   "fieldtype": "Table",
+   "label": "Lines",
+   "options": "Tally Invoice Line"
+  },
+  {
+   "fieldname": "sec_meta",
+   "fieldtype": "Section Break",
+   "label": "Tally Metadata",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "guid",
+   "fieldtype": "Data",
+   "label": "Tally GUID",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "master_id",
+   "fieldtype": "Data",
+   "label": "Master ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "alter_id",
+   "fieldtype": "Data",
+   "label": "Alter ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Invoice",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "voucher_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "autoname": "Prompt",
+ "title_field": "party",
+ "description": "Sales invoices with their GST breakup and item lines. This is the permanent document history; Tally Bill is the destructive snapshot of what is still unpaid. The two answer different questions.",
+ "search_fields": "party,invoice_no"
+}
