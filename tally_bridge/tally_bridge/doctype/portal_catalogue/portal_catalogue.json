@@ -1,0 +1,103 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "file",
+  "cb_cat",
+  "active",
+  "pages",
+  "added_on",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "file",
+   "fieldtype": "Attach",
+   "label": "PDF File",
+   "reqd": 1,
+   "description": "The catalogue as distributors will see it. Upload the final PDF \u2014 nothing is added or computed on top."
+  },
+  {
+   "fieldname": "cb_cat",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "label": "Visible to Distributors",
+   "default": "1",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Untick to pull it from every distributor's phone at once."
+  },
+  {
+   "fieldname": "pages",
+   "fieldtype": "Int",
+   "label": "Pages"
+  },
+  {
+   "fieldname": "added_on",
+   "fieldtype": "Date",
+   "label": "Added On",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Internal Notes",
+   "description": "Office-only. Never shown in the portal."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Portal Catalogue",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "create": 1,
+   "write": 1,
+   "delete": 1
+  }
+ ],
+ "sort_field": "added_on",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "autoname": "format:CAT-{####}",
+ "title_field": "title",
+ "description": "Catalogue PDFs published to the distributor portal. The portal shows exactly these files \u2014 no rates, no stock, nothing derived."
+}

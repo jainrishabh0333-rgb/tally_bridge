@@ -340,6 +340,80 @@ class DistributorPortalTestCase(FrappeTestCase):
         self.assertEqual(float(line.delivered_qty), 5.0)
         self.assertEqual(float(line.pending_qty), 5.0)
 
+    # -- catalogue PDFs and order photos ------------------------------------
+
+    def test_catalogue_needs_a_grant_and_hides_inactive(self):
+        frappe.set_user("Administrator")
+        cat = frappe.get_doc({
+            "doctype": "Portal Catalogue", "title": "_Test Festive 2026",
+            "file": "/private/files/_test_cat.pdf", "active": 1,
+            "added_on": "2026-08-01",
+        }).insert(ignore_permissions=True)
+
+        frappe.set_user(USER_A)
+        titles = {r["title"] for r in portal.get_catalogues()["rows"]}
+        self.assertIn("_Test Festive 2026", titles)
+
+        frappe.set_user("Administrator")
+        frappe.db.set_value("Portal Catalogue", cat.name, "active", 0)
+        frappe.set_user(USER_A)
+        titles = {r["title"] for r in portal.get_catalogues()["rows"]}
+        self.assertNotIn("_Test Festive 2026", titles)
+        # Unpublished answers exactly like absent.
+        with self.assertRaises(frappe.DoesNotExistError):
+            portal.download_catalogue(catalogue=cat.name)
+
+        frappe.set_user("Administrator")
+        frappe.db.set_value("DMS Portal Access", USER_A, "enabled", 0)
+        frappe.set_user(USER_A)
+        with self.assertRaises(frappe.PermissionError):
+            portal.get_catalogues()
+
+    def test_order_photo_isolation_and_replay(self):
+        import base64
+        payload = base64.b64encode(b"fake-jpeg-bytes").decode()
+
+        frappe.set_user(USER_A)
+        first = portal.upload_order_photo(client_key="PH-TEST-1",
+                                          filename="pad.jpg", content=payload)
+        again = portal.upload_order_photo(client_key="PH-TEST-1",
+                                          filename="pad.jpg", content=payload)
+        self.assertTrue(first["created"])
+        self.assertFalse(again["created"])
+        self.assertEqual(frappe.db.count(
+            "Distributor Order Photo", {"client_key": "PH-TEST-1"}), 1)
+
+        # A's photo appears in A's orders as Received...
+        stages = {o["stage"] for o in portal.get_orders()["orders"]}
+        self.assertIn("Received", stages)
+
+        # ...and never in B's anything — including a replay of A's key.
+        frappe.set_user(USER_B)
+        self.assertEqual(
+            [o for o in portal.get_orders()["orders"] if o.get("photo")], [])
+        with self.assertRaises(frappe.ValidationError):
+            portal.upload_order_photo(client_key="PH-TEST-1",
+                                      filename="pad.jpg", content=payload)
+
+    def test_queue_failure_text_never_reaches_the_distributor(self):
+        frappe.set_user("Administrator")
+        frappe.get_doc({
+            "doctype": "Tally Order Queue", "order_key": "Q-FAIL-1",
+            "company": COMPANY, "party_ledger": PARTY_A,
+            "status": "Pending", "queued_at": frappe.utils.now_datetime(),
+        }).insert(ignore_permissions=True)
+        frappe.db.set_value("Tally Order Queue", "Q-FAIL-1",
+                            {"status": "Failed",
+                             "error": "ledger 'X' missing in company file"})
+
+        frappe.set_user(USER_A)
+        rows = [o for o in portal.get_orders()["orders"]
+                if o.get("order_key") == "Q-FAIL-1"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["stage"], "Being entered")
+        blob = frappe.as_json(rows[0])
+        self.assertNotIn("ledger 'X' missing", blob)
+
     def test_payment_intimation_auto_confirms(self):
         frappe.set_user(USER_A)
         out = portal.submit_payment_intimation(payload={

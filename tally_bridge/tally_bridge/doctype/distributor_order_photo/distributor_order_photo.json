@@ -1,0 +1,163 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "party_ledger",
+  "party_name",
+  "company",
+  "cb_photo",
+  "status",
+  "uploaded_at",
+  "uploaded_by",
+  "sec_photo",
+  "photo",
+  "client_key",
+  "sec_outcome",
+  "order_key",
+  "cb_outcome",
+  "reject_note",
+  "office_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "party_ledger",
+   "fieldtype": "Link",
+   "label": "Party (Tally Ledger)",
+   "options": "Tally Ledger",
+   "reqd": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "description": "Set from the portal session. Never from the upload."
+  },
+  {
+   "fieldname": "party_name",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_photo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "options": "Received\nBeing entered\nEntered\nRejected",
+   "default": "Received",
+   "search_index": 1
+  },
+  {
+   "fieldname": "uploaded_at",
+   "fieldtype": "Datetime",
+   "label": "Uploaded At",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "uploaded_by",
+   "fieldtype": "Data",
+   "label": "Uploaded By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_photo",
+   "fieldtype": "Section Break",
+   "label": "Photo"
+  },
+  {
+   "fieldname": "photo",
+   "fieldtype": "Attach",
+   "label": "Order Photo",
+   "reqd": 1
+  },
+  {
+   "fieldname": "client_key",
+   "fieldtype": "Data",
+   "label": "Client Key",
+   "read_only": 1,
+   "unique": 1,
+   "description": "Idempotency key from the phone. The same photo sent twice lands on this one row, never a second order."
+  },
+  {
+   "fieldname": "sec_outcome",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "fieldname": "order_key",
+   "fieldtype": "Data",
+   "label": "Order Key",
+   "search_index": 1,
+   "description": "Filled by the office when the order is entered \u2014 joins this photo to its Tally Order Queue row, so the distributor's app shows one order, not a photo AND an order."
+  },
+  {
+   "fieldname": "cb_outcome",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reject_note",
+   "fieldtype": "Small Text",
+   "label": "Note to Distributor",
+   "description": "Shown on the distributor's phone when rejected. Keep it simple \u2014 'photo unclear, please retake'. Never paste internal errors here."
+  },
+  {
+   "fieldname": "office_note",
+   "fieldtype": "Small Text",
+   "label": "Internal Note",
+   "description": "Office-only. Never shown in the portal."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Distributor Order Photo",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "autoname": "Prompt",
+ "title_field": "party_name",
+ "description": "Photographed order pads sent from the distributor portal. The office reviews each photo and enters the order through the usual queue; nothing reaches Tally from a photo without a person approving it.",
+ "search_fields": "party_name,order_key"
+}

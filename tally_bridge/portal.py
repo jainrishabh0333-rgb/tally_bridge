@@ -30,21 +30,30 @@ from tally_bridge.api import ORDER_TYPES, _POSTED_V, _limit
 STATEMENT_CAP = 2000
 
 # Stage names shown to the distributor, derived — never stored — from the
-# queue row and the mirrored voucher.
+# queue row and the mirrored voucher. OUTWARD language only (MD's decision,
+# 2026-08-15): no internal system names, no sync states. A Failed import is
+# an office problem — the distributor sees "Being entered" while the office
+# fixes and retries, never an internal error.
 QUEUE_STAGES = {
-    "Pending": "Queued",
-    "Importing": "In Tally",
-    "Imported": "In Tally",     # refined by the mirror's own status below
-    "Failed": "Failed",
+    "Pending": "Received",
+    "Importing": "Being entered",
+    "Imported": "Confirmed",    # refined by the mirror's own status below
+    "Failed": "Being entered",
     "Cancelled": "Cancelled",
 }
 MIRROR_STAGES = {
-    "Open": "In Tally",
-    "Partial": "Partial",
-    "Delivered": "Delivered",
+    "Open": "Confirmed",
+    "Partial": "Partly sent",
+    "Delivered": "Sent",
     "Billed": "Billed",
     "Cancelled": "Cancelled",
     "Pre-closed": "Billed",
+}
+# Photo uploads ahead of the queue: same outward vocabulary.
+PHOTO_STAGES = {
+    "Received": "Received",
+    "Being entered": "Being entered",
+    "Rejected": "Rejected",
 }
 
 
@@ -111,6 +120,19 @@ def get_summary():
         """,
         {"company": p.company, "party": p.ledger_name}, as_dict=True)
 
+    # Advances and unadjusted credits are the one legitimate reason the bill
+    # total and the ledger balance can disagree — so they are SHOWN as their
+    # own figure rather than hidden, and the two numbers always reconcile in
+    # front of the distributor.
+    advance = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(ABS(outstanding)), 0)
+        FROM `tabTally Bill`
+        WHERE company = %(company)s AND party = %(party)s
+          AND (outstanding < 0 OR is_advance = 1) AND outstanding != 0
+        """,
+        {"company": p.company, "party": p.ledger_name})[0][0]
+
     outstanding = round(sum(flt(b.outstanding) for b in bills), 2)
     overdue = [b for b in bills if (b.overdue_days or 0) > 0]
     buckets = {"not_due": 0.0, "1_15": 0.0, "16_30": 0.0, "30_plus": 0.0}
@@ -155,6 +177,7 @@ def get_summary():
     return {
         "party": p.ledger_name,
         "outstanding": outstanding,
+        "advance_credit": round(flt(advance), 2),
         "overdue_total": round(sum(flt(b.outstanding) for b in overdue), 2),
         "overdue_bills": len(overdue),
         "ageing": buckets,
@@ -224,25 +247,52 @@ def get_orders(status=None):
             "lines": _order_lines(m.name),
         })
 
+    queued_keys = set()
     for q in _queue_rows(p):
+        queued_keys.add(q.order_key)
         if q.order_key in mirrored_keys:
             continue                      # already shown as its voucher
-        stage = QUEUE_STAGES.get(q.status, q.status)
+        stage = QUEUE_STAGES.get(q.status, "Received")
         out.append({
             "stage": stage,
             "order_no": q.order_no or q.order_key,
             "order_date": str(q.order_date or ""),
-            "amount": None,               # priced at import, not before
+            "amount": None,               # priced at entry, not before
             "order_key": q.order_key,
             "queued_at": str(q.queued_at or ""),
-            "error": q.error or None,
+            # No error text here, ever: an import failure is an office
+            # problem, and its message can name ledgers and internal state.
             "lines": frappe.get_all(
                 "Tally Order Queue Line",
                 filters={"parent": q.order_key,
                          "parenttype": "Tally Order Queue"},
-                fields=["item_name", "size_batch", "qty", "unit", "rate",
-                        "discount"],
+                fields=["item_name", "size_batch", "qty", "unit"],
                 order_by="idx asc", limit_page_length=0),
+        })
+
+    # Photographed order pads that have not yet become an order. Once the
+    # office enters one, its order_key joins it to the queue/voucher row
+    # above and the photo stops being listed separately.
+    photos = frappe.get_all(
+        "Distributor Order Photo",
+        filters={"party_ledger": p.name},
+        fields=["name", "status", "uploaded_at", "order_key", "reject_note"],
+        order_by="uploaded_at desc", limit_page_length=50)
+    for ph in photos:
+        if ph.status == "Entered" and (ph.order_key in mirrored_keys
+                                       or ph.order_key in queued_keys):
+            continue
+        if ph.status == "Entered":
+            continue          # entered by hand without a key: order shows anyway
+        out.append({
+            "stage": PHOTO_STAGES.get(ph.status, "Received"),
+            "order_no": None,
+            "order_date": str(ph.uploaded_at or "")[:10],
+            "amount": None,
+            "photo": ph.name,
+            "uploaded_at": str(ph.uploaded_at or ""),
+            "note": ph.reject_note or None,   # office-written, distributor-safe
+            "lines": [],
         })
 
     if status:
@@ -264,14 +314,13 @@ def get_order(order_key=None):
     if queue:
         q = queue[0]
         order_no = q.order_no or None
-        timeline.append({"event": "Queued", "at": str(q.queued_at or ""),
-                         "detail": f"from {q.source}" if q.source else ""})
-        if q.status == "Failed":
-            timeline.append({"event": "Import failed", "at": "",
-                             "detail": q.error or ""})
+        timeline.append({"event": "Order received", "at": str(q.queued_at or ""),
+                         "detail": ""})
+        # A Failed import is deliberately NOT a timeline event: the office
+        # fixes and retries, and the raw reason can name internal state.
         if q.tally_vch_number:
-            timeline.append({"event": "Imported into Tally", "at": "",
-                             "detail": f"voucher {q.tally_vch_number}"})
+            timeline.append({"event": "Confirmed", "at": "",
+                             "detail": f"order no. {q.tally_vch_number}"})
 
     # The mirrored voucher: by order_key when the order came from the queue,
     # else by voucher number — BOTH always constrained to the caller's party.
@@ -299,16 +348,16 @@ def get_order(order_key=None):
             "order_date": str(so.voucher_date or ""),
             "amount": flt(so.amount),
             "delivered_value": flt(so.delivered_value),
-            "stage": MIRROR_STAGES.get(so.order_status, "In Tally"),
+            "stage": MIRROR_STAGES.get(so.order_status, "Confirmed"),
             "lines": _order_lines(so.name),
         })
-        timeline.append({"event": "Order in Tally",
+        timeline.append({"event": "Confirmed",
                          "at": str(so.voucher_date or ""),
-                         "detail": so.voucher_number})
+                         "detail": f"order no. {so.voucher_number}"})
         for table, parent, label, num_field in (
                 ("Tally Delivery Note Line", "Tally Delivery Note",
-                 "Delivered", "voucher_number"),
-                ("Tally Invoice Line", "Tally Invoice", "Invoiced",
+                 "Sent", "voucher_number"),
+                ("Tally Invoice Line", "Tally Invoice", "Billed",
                  "invoice_no")):
             docs = frappe.db.sql(
                 f"""
@@ -329,7 +378,7 @@ def get_order(order_key=None):
         q = queue[0]
         result.update({
             "order_no": q.order_no or order_key,
-            "stage": QUEUE_STAGES.get(q.status, q.status),
+            "stage": QUEUE_STAGES.get(q.status, "Received"),
         })
     return result
 
@@ -537,100 +586,142 @@ def get_payments(limit=100):
 
 
 # ---------------------------------------------------------------------------
-# Catalogue and network
+# Catalogue (office-published PDFs) and order photos
 # ---------------------------------------------------------------------------
+#
+# MD's decision, 2026-08-15: distributors see NO stock information at all —
+# not even in/low/out buckets — and no computed rates. The catalogue is
+# whatever PDFs the office publishes, exactly as published. Orders arrive as
+# photographs of the distributor's own order pad, reviewed by a person
+# before anything reaches Tally.
 
-# Stock is bucketed, never disclosed: "in" / "low" / "out". The low threshold
-# is in the party's ordering unit where known.
-LOW_STOCK_THRESHOLD = 20.0
-
-
-def _bucket_qty(qty) -> str:
-    q = flt(qty)
-    if q <= 0:
-        return "out"
-    if q < LOW_STOCK_THRESHOLD:
-        return "low"
-    return "in"
+@frappe.whitelist(methods=["GET"])
+def get_catalogues():
+    """The catalogue PDFs currently published, newest first."""
+    p = _party()   # any enabled grant may read; nothing party-specific here
+    rows = frappe.get_all(
+        "Portal Catalogue",
+        filters={"active": 1},
+        fields=["name", "title", "pages", "added_on"],
+        order_by="added_on desc, creation desc", limit_page_length=50)
+    from urllib.parse import quote
+    for r in rows:
+        r["added_on"] = str(r["added_on"] or "")
+        r["pdf"] = ("/api/method/tally_bridge.portal.download_catalogue"
+                    f"?catalogue={quote(r['name'])}")
+        del r["name"]
+    return {"count": len(rows), "rows": rows}
 
 
 @frappe.whitelist(methods=["GET"])
-def get_catalogue(query=None, group=None, limit=200):
-    """
-    Items with their sizes, availability buckets and the caller's rate.
+def download_catalogue(catalogue=None):
+    """Stream one published catalogue PDF to a signed-in distributor."""
+    _party()
+    if not catalogue:
+        frappe.throw("`catalogue` is required")
+    doc = frappe.db.get_value("Portal Catalogue", catalogue,
+                              ["name", "title", "file", "active"], as_dict=True)
+    # Inactive answers exactly like absent: unpublishing must be total.
+    if not doc or not doc.active or not doc.file:
+        frappe.throw("No such catalogue.", frappe.DoesNotExistError)
+    file_doc = frappe.get_all(
+        "File", filters={"file_url": doc.file, "attached_to_doctype":
+                         "Portal Catalogue", "attached_to_name": doc.name},
+        limit=1)
+    if not file_doc:
+        file_doc = frappe.get_all("File", filters={"file_url": doc.file}, limit=1)
+    if not file_doc:
+        frappe.throw("No such catalogue.", frappe.DoesNotExistError)
+    content = frappe.get_doc("File", file_doc[0].name).get_content()
+    safe = "".join(c for c in doc.title if c.isalnum() or c in " -_")[:60]
+    frappe.local.response.filename = f"{safe or 'catalogue'}.pdf"
+    frappe.local.response.filecontent = content
+    frappe.local.response.type = "download"
 
-    Rates come from Tally Item Rate — harvested from real voucher lines,
-    party-specific where the party is actually charged differently. Exact
-    stock never leaves this function: sizes carry in/low/out only.
+
+MAX_PHOTO_BYTES = 10 * 1024 * 1024
+PHOTO_TYPES = {"jpg", "jpeg", "png", "pdf", "heic", "webp"}
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_order_photo(client_key=None, filename=None, content=None):
+    """
+    A photographed order pad, sent from the phone.
+
+    Creates a Distributor Order Photo for the office to review — a person
+    enters the order through the usual queue, so nothing reaches Tally from
+    a photo without approval. `client_key` makes replays safe: the same
+    photo sent twice lands on the same row. Accepts a multipart file
+    ("file") or base64 `content` + `filename`.
     """
     p = _party()
-    conds = ["company = %(company)s"]
-    params = {"company": p.company, "limit": _limit(limit, 200)}
-    if query:
-        conds.append("(item_name LIKE %(q)s OR part_no LIKE %(q)s)")
-        params["q"] = f"%{query}%"
-    if group:
-        conds.append("stock_group = %(group)s")
-        params["group"] = group
+    client_key = (client_key or "").strip()
+    if not client_key:
+        frappe.throw("`client_key` is required — it is what makes a resend "
+                     "safe.")
 
-    items = frappe.db.sql(
-        f"""
-        SELECT item_name, stock_group, base_units, closing_qty
-        FROM `tabTally Stock Item`
-        WHERE {' AND '.join(conds)}
-        ORDER BY ABS(closing_qty) DESC, item_name
-        LIMIT %(limit)s
-        """,
-        params, as_dict=True)
-    if not items:
-        return {"count": 0, "items": []}
+    existing = frappe.db.get_value(
+        "Distributor Order Photo", {"client_key": client_key},
+        ["name", "party_ledger", "status"], as_dict=True)
+    if existing:
+        if existing.party_ledger != p.name:
+            frappe.throw("This key is already in use.")
+        return {"created": False, "name": existing.name,
+                "status": existing.status}
 
-    names = tuple(i.item_name for i in items)
-    sizes = frappe.db.sql(
-        """
-        SELECT item_name, batch_name, closing_qty, as_of
-        FROM `tabTally Stock Batch`
-        WHERE company = %(company)s AND item_name IN %(names)s
-        ORDER BY item_name, batch_name
-        """,
-        {"company": p.company, "names": names}, as_dict=True)
-    sizes_by_item: dict = {}
-    for s in sizes:
-        sizes_by_item.setdefault(s.item_name, []).append({
-            "size": s.batch_name,
-            "availability": _bucket_qty(s.closing_qty),
-            "as_of": str(s.as_of or ""),
-        })
+    # The bytes: multipart upload preferred, base64 fallback.
+    data = b""
+    fname = (filename or "").strip()
+    req_file = frappe.request.files.get("file") if frappe.request and \
+        getattr(frappe.request, "files", None) else None
+    if req_file is not None:
+        data = req_file.stream.read()
+        fname = fname or req_file.filename or ""
+    elif content:
+        import base64
+        try:
+            data = base64.b64decode(content, validate=True)
+        except Exception:
+            frappe.throw("`content` must be base64.")
+    if not data:
+        frappe.throw("No photo received.")
+    if len(data) > MAX_PHOTO_BYTES:
+        frappe.throw("The photo is over 10 MB — please send a smaller one.")
+    ext = (fname.rsplit(".", 1)[-1].lower() if "." in fname else "")
+    if ext not in PHOTO_TYPES:
+        frappe.throw("Please send a photo (JPG/PNG/HEIC/WebP) or a PDF.")
 
-    rates = frappe.db.sql(
-        """
-        SELECT item_name, party, rate, unit, discount, discount2, net_rate
-        FROM `tabTally Item Rate`
-        WHERE company = %(company)s AND item_name IN %(names)s
-          AND party IN ('', %(party)s)
-        """,
-        {"company": p.company, "names": names, "party": p.ledger_name},
-        as_dict=True)
-    rate_by_item: dict = {}
-    for r in rates:
-        cur = rate_by_item.get(r.item_name)
-        if cur is None or r.party:        # the party-specific row wins
-            rate_by_item[r.item_name] = r
+    doc = frappe.get_doc({
+        "doctype": "Distributor Order Photo",
+        "party_ledger": p.name,
+        "party_name": p.ledger_name,
+        "company": p.company,
+        "status": "Received",
+        "client_key": client_key,
+        "photo": "pending",      # satisfied below, once the File exists
+        "uploaded_at": now_datetime(),
+        "uploaded_by": frappe.session.user,
+    })
+    doc.insert(ignore_permissions=True)
 
-    out = []
-    for i in items:
-        r = rate_by_item.get(i.item_name)
-        out.append({
-            "item_name": i.item_name,
-            "group": i.stock_group,
-            "unit": i.base_units,
-            "availability": _bucket_qty(i.closing_qty),
-            "sizes": sizes_by_item.get(i.item_name, []),
-            "rate": ({"rate": flt(r.rate), "unit": r.unit,
-                      "discount": flt(r.discount), "discount2": flt(r.discount2),
-                      "net_rate": flt(r.net_rate)} if r else None),
-        })
-    return {"count": len(out), "items": out}
+    file_doc = frappe.get_doc({
+        "doctype": "File",
+        "file_name": f"order-{client_key[:40]}.{ext}",
+        "attached_to_doctype": "Distributor Order Photo",
+        "attached_to_name": doc.name,
+        "is_private": 1,
+        "content": data,
+    })
+    file_doc.flags.ignore_permissions = True
+    file_doc.insert(ignore_permissions=True)
+    frappe.db.set_value("Distributor Order Photo", doc.name,
+                        "photo", file_doc.file_url)
+
+    _notify_office(f"Order photo from {p.ledger_name}",
+                   "Distributor Order Photo", doc.name,
+                   "A new photographed order pad is waiting to be entered.")
+    frappe.db.commit()
+    return {"created": True, "name": doc.name, "status": "Received"}
 
 
 @frappe.whitelist(methods=["GET"])
@@ -873,7 +964,15 @@ def submit_suggestion(text=None):
         "submitted_at": now_datetime(),
     })
     doc.insert(ignore_permissions=True)
+    _notify_office(f"Suggestion from {p.ledger_name}",
+                   "Distributor Suggestion", doc.name, text[:500])
+    frappe.db.commit()
+    return {"created": True, "name": doc.name}
 
+
+def _notify_office(subject: str, doctype: str, name: str, body: str) -> None:
+    """Desk notification to the office. Best-effort: a notification failure
+    must never lose the document it announces."""
     recipients = frappe.get_all(
         "Has Role",
         filters={"role": ["in", ["DMS Manager", "System Manager"]],
@@ -887,15 +986,13 @@ def submit_suggestion(text=None):
                 "doctype": "Notification Log",
                 "for_user": user,
                 "type": "Alert",
-                "document_type": "Distributor Suggestion",
-                "document_name": doc.name,
-                "subject": f"Suggestion from {p.ledger_name}",
-                "email_content": text[:500],
+                "document_type": doctype,
+                "document_name": name,
+                "subject": subject,
+                "email_content": body,
             }).insert(ignore_permissions=True)
         except Exception:
-            pass          # a notification failure must not lose the suggestion
-    frappe.db.commit()
-    return {"created": True, "name": doc.name}
+            pass
 
 
 # ---------------------------------------------------------------------------
