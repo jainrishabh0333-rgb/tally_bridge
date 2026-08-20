@@ -414,6 +414,90 @@ class DistributorPortalTestCase(FrappeTestCase):
         blob = frappe.as_json(rows[0])
         self.assertNotIn("ledger 'X' missing", blob)
 
+    def test_transport_copy_is_ownership_gated(self):
+        frappe.set_user("Administrator")
+        upsert_invoices(invoices=[{
+            "guid": "inv-guid-lr1", "company": COMPANY,
+            "invoice_no": "SNJ/T/LR1", "date": "2026-08-05", "party": PARTY_B,
+            "amount": 1000.0, "alter_id": "2",
+            "dispatched_through": "VRL Logistics", "lr_no": "LR-991",
+            "lines": [],
+        }])
+        inv = frappe.db.get_value(
+            "Tally Invoice", {"company": COMPANY, "invoice_no": "SNJ/T/LR1"},
+            "name")
+        frappe.db.set_value("Tally Invoice", inv, "transport_copy",
+                            "/private/files/_test_lr.pdf")
+
+        # A asking for B's LR answers exactly like a bill with no copy.
+        frappe.set_user(USER_A)
+        with self.assertRaises(frappe.DoesNotExistError):
+            portal.download_transport_copy(invoice=inv)
+
+    def test_sync_never_blanks_an_uploaded_transport_copy(self):
+        frappe.set_user("Administrator")
+        payload = [{
+            "guid": "inv-guid-lr2", "company": COMPANY,
+            "invoice_no": "SNJ/T/LR2", "date": "2026-08-06", "party": PARTY_A,
+            "amount": 500.0, "alter_id": "1", "lines": [],
+        }]
+        upsert_invoices(invoices=payload)
+        inv = frappe.db.get_value(
+            "Tally Invoice", {"company": COMPANY, "invoice_no": "SNJ/T/LR2"},
+            "name")
+        frappe.db.set_value("Tally Invoice", inv, "transport_copy",
+                            "/private/files/_test_lr2.pdf")
+        # Re-sync with a NEW alter_id so the update path actually runs.
+        payload[0]["alter_id"] = "2"
+        upsert_invoices(invoices=payload)
+        self.assertEqual(
+            frappe.db.get_value("Tally Invoice", inv, "transport_copy"),
+            "/private/files/_test_lr2.pdf")
+
+    def test_reorder_repeats_own_order_only(self):
+        frappe.set_user("Administrator")
+        upsert_sales_orders(orders=[_so_payload(PARTY_A, "so-guid-ra",
+                                                "SO/A/RA")])
+        frappe.get_doc({
+            "doctype": "Tally Item Rate",
+            "item_name": "_Test Item Bra", "party": "", "company": COMPANY,
+            "rate": 1200.0, "unit": "Doz", "discount": 50.0,
+            "discount2": 20.0, "net_rate": 480.0,
+        }).insert(ignore_permissions=True, ignore_if_duplicate=True)
+
+        frappe.set_user(USER_B)
+        with self.assertRaises(frappe.DoesNotExistError):
+            portal.reorder(source_order="SO/A/RA", order_key="RE-B-1")
+
+        frappe.set_user(USER_A)
+        out = portal.reorder(source_order="SO/A/RA", order_key="RE-A-1")
+        self.assertTrue(out["queued"])
+        row = frappe.db.get_value("Tally Order Queue", "RE-A-1",
+                                  ["party_ledger"], as_dict=True)
+        self.assertEqual(row.party_ledger, PARTY_A)
+
+    def test_balance_confirmation_freezes_and_dedupes(self):
+        frappe.set_user(USER_A)
+        first = portal.confirm_balance()
+        again = portal.confirm_balance()
+        self.assertTrue(first["confirmed"])
+        self.assertFalse(again["confirmed"])
+        self.assertEqual(first["balance"], 5000.0)   # the seeded ledger figure
+
+    def test_claims_are_separate_from_orders_and_isolated(self):
+        import base64
+        payload = base64.b64encode(b"fake-claim-bytes").decode()
+        frappe.set_user(USER_A)
+        portal.upload_order_photo(client_key="CL-TEST-1", filename="dmg.jpg",
+                                  content=payload, kind="Claim")
+        self.assertEqual(portal.get_claims()["count"], 1)
+        # A claim never shows up amid orders...
+        self.assertEqual(
+            [o for o in portal.get_orders()["orders"] if o.get("photo")], [])
+        # ...and never in another party's claims.
+        frappe.set_user(USER_B)
+        self.assertEqual(portal.get_claims()["count"], 0)
+
     def test_payment_intimation_auto_confirms(self):
         frappe.set_user(USER_A)
         out = portal.submit_payment_intimation(payload={

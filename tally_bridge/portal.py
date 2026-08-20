@@ -275,7 +275,7 @@ def get_orders(status=None):
     # above and the photo stops being listed separately.
     photos = frappe.get_all(
         "Distributor Order Photo",
-        filters={"party_ledger": p.name},
+        filters={"party_ledger": p.name, "kind": "Order"},
         fields=["name", "status", "uploaded_at", "order_key", "reject_note"],
         order_by="uploaded_at desc", limit_page_length=50)
     for ph in photos:
@@ -513,20 +513,56 @@ def get_invoices(from_date=None, to_date=None, limit=100):
     rows = frappe.db.sql(
         f"""
         SELECT name, invoice_no, voucher_date, amount, taxable_value,
-               cgst, sgst, igst, cess, round_off, reference, bill_refs
+               cgst, sgst, igst, cess, round_off, reference, bill_refs,
+               dispatched_through, lr_no, destination, transport_copy
         FROM `tabTally Invoice`
         WHERE {' AND '.join(conds)}
         ORDER BY voucher_date DESC, creation DESC
         LIMIT %(limit)s
         """,
         params, as_dict=True)
+    from urllib.parse import quote
     for r in rows:
         r["voucher_date"] = str(r["voucher_date"] or "")
-        from urllib.parse import quote
         r["pdf"] = ("/api/method/tally_bridge.portal.download_invoice_pdf"
                     f"?invoice={quote(r['name'])}")
+        # The LR/bilty, when the office has uploaded it. The URL goes through
+        # this module — never the raw file path — so ownership is checked.
+        r["transport_copy"] = (
+            "/api/method/tally_bridge.portal.download_transport_copy"
+            f"?invoice={quote(r['name'])}") if r["transport_copy"] else None
         del r["name"]
     return {"count": len(rows), "rows": rows}
+
+
+@frappe.whitelist(methods=["GET"])
+def download_transport_copy(invoice=None):
+    """The LR/bilty for one of the caller's own invoices."""
+    p = _party()
+    if not invoice:
+        frappe.throw("`invoice` is required")
+    doc = frappe.db.get_value(
+        "Tally Invoice", invoice,
+        ["name", "party", "company", "invoice_no", "transport_copy"],
+        as_dict=True)
+    # Ownership first, existence second — same rule as the invoice PDF.
+    if not doc or doc.party != p.ledger_name or doc.company != p.company \
+            or not doc.transport_copy:
+        frappe.throw("No transport copy for this bill.",
+                     frappe.DoesNotExistError)
+    file_row = frappe.get_all("File", filters={
+        "file_url": doc.transport_copy,
+        "attached_to_doctype": "Tally Invoice",
+        "attached_to_name": doc.name}, limit=1)
+    if not file_row:
+        frappe.throw("No transport copy for this bill.",
+                     frappe.DoesNotExistError)
+    file_doc = frappe.get_doc("File", file_row[0].name)
+    ext = (doc.transport_copy.rsplit(".", 1)[-1] or "pdf").lower()
+    safe = (doc.invoice_no or "bill").replace("/", "-")
+    frappe.local.response.filename = f"LR-{safe}.{ext}"
+    frappe.local.response.filecontent = file_doc.get_content()
+    frappe.local.response.type = "download"
 
 
 @frappe.whitelist(methods=["GET"])
@@ -644,17 +680,21 @@ PHOTO_TYPES = {"jpg", "jpeg", "png", "pdf", "heic", "webp"}
 
 
 @frappe.whitelist(methods=["POST"])
-def upload_order_photo(client_key=None, filename=None, content=None):
+def upload_order_photo(client_key=None, filename=None, content=None, kind=None):
     """
-    A photographed order pad, sent from the phone.
+    A photographed order pad — or a damage/shortage claim photo.
 
     Creates a Distributor Order Photo for the office to review — a person
     enters the order through the usual queue, so nothing reaches Tally from
     a photo without approval. `client_key` makes replays safe: the same
     photo sent twice lands on the same row. Accepts a multipart file
-    ("file") or base64 `content` + `filename`.
+    ("file") or base64 `content` + `filename`. `kind` is "Order" (default)
+    or "Claim".
     """
     p = _party()
+    kind = (kind or "Order").strip().title()
+    if kind not in ("Order", "Claim"):
+        frappe.throw("`kind` must be Order or Claim.")
     client_key = (client_key or "").strip()
     if not client_key:
         frappe.throw("`client_key` is required — it is what makes a resend "
@@ -696,6 +736,7 @@ def upload_order_photo(client_key=None, filename=None, content=None):
         "party_ledger": p.name,
         "party_name": p.ledger_name,
         "company": p.company,
+        "kind": kind,
         "status": "Received",
         "client_key": client_key,
         "photo": "pending",      # satisfied below, once the File exists
@@ -717,9 +758,11 @@ def upload_order_photo(client_key=None, filename=None, content=None):
     frappe.db.set_value("Distributor Order Photo", doc.name,
                         "photo", file_doc.file_url)
 
-    _notify_office(f"Order photo from {p.ledger_name}",
-                   "Distributor Order Photo", doc.name,
-                   "A new photographed order pad is waiting to be entered.")
+    what = ("A new photographed order pad is waiting to be entered."
+            if kind == "Order" else
+            "A damage/shortage claim photo is waiting for review.")
+    _notify_office(f"{kind} photo from {p.ledger_name}",
+                   "Distributor Order Photo", doc.name, what)
     frappe.db.commit()
     return {"created": True, "name": doc.name, "status": "Received"}
 
@@ -767,6 +810,264 @@ def get_network():
         "note": (None if parties else
                  "No ledgers are grouped under this account in Tally."),
     }
+
+
+# ---------------------------------------------------------------------------
+# Notices, updates, statement PDF, business summary, balance confirmation
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist(methods=["GET"])
+def get_notices():
+    """Active office announcements — schemes, offers, closures."""
+    _party()
+    rows = frappe.db.sql(
+        """
+        SELECT title, message, valid_till, published_on
+        FROM `tabPortal Notice`
+        WHERE active = 1
+          AND (valid_till IS NULL OR valid_till >= %(today)s)
+        ORDER BY published_on DESC, creation DESC
+        LIMIT 20
+        """,
+        {"today": getdate()}, as_dict=True)
+    for r in rows:
+        r["valid_till"] = str(r["valid_till"] or "")
+        r["published_on"] = str(r["published_on"] or "")
+    return {"count": len(rows), "rows": rows}
+
+
+@frappe.whitelist(methods=["GET"])
+def get_updates(since=None):
+    """
+    What happened on the caller's account since `since` (ISO datetime):
+    new dispatches (bills), confirmed payments, new catalogues, new notices.
+
+    Stateless on purpose — the phone remembers its own last-seen stamp and
+    asks; nothing is stored per visit.
+    """
+    p = _party()
+    if not since:
+        frappe.throw("`since` is required, e.g. 2026-08-16 09:30:00")
+    from frappe.utils import get_datetime
+    cutoff = get_datetime(since)
+
+    dispatches = frappe.get_all(
+        "Tally Invoice",
+        filters={"company": p.company, "party": p.ledger_name,
+                 "is_cancelled": 0, "is_optional": 0,
+                 "creation": [">", cutoff]},
+        fields=["invoice_no", "voucher_date", "amount", "dispatched_through",
+                "lr_no"],
+        order_by="creation desc", limit_page_length=20)
+    for d in dispatches:
+        d["voucher_date"] = str(d["voucher_date"] or "")
+
+    confirmed = frappe.get_all(
+        "Payment Intimation",
+        filters={"party_ledger": p.name, "status": "Confirmed",
+                 "matched_at": [">", cutoff]},
+        fields=["amount", "mode", "utr_ref", "matched_at"],
+        order_by="matched_at desc", limit_page_length=20)
+    for c in confirmed:
+        c["matched_at"] = str(c["matched_at"] or "")
+
+    catalogues = frappe.get_all(
+        "Portal Catalogue",
+        filters={"active": 1, "creation": [">", cutoff]},
+        fields=["title", "added_on"], order_by="creation desc",
+        limit_page_length=10)
+    for c in catalogues:
+        c["added_on"] = str(c["added_on"] or "")
+
+    notices = frappe.get_all(
+        "Portal Notice",
+        filters={"active": 1, "creation": [">", cutoff]},
+        fields=["title", "published_on"], order_by="creation desc",
+        limit_page_length=10)
+    for n in notices:
+        n["published_on"] = str(n["published_on"] or "")
+
+    return {"since": str(cutoff), "dispatches": dispatches,
+            "payments_confirmed": confirmed, "new_catalogues": catalogues,
+            "new_notices": notices}
+
+
+@frappe.whitelist(methods=["GET"])
+def download_statement_pdf(from_date=None, to_date=None):
+    """The caller's statement, as a PDF for their accountant."""
+    p = _party()
+    data = get_statement(from_date=from_date, to_date=to_date)
+    rows_html = "".join(
+        f"<tr><td>{r['date']}</td><td>{frappe.utils.escape_html(r['particulars'])}"
+        f"</td><td style='text-align:right'>{r['debit'] or ''}</td>"
+        f"<td style='text-align:right'>{r['credit'] or ''}</td>"
+        f"<td style='text-align:right'>{r['balance']}</td></tr>"
+        for r in data["rows"])
+    period = ""
+    if data["period"]["from"] or data["period"]["to"]:
+        period = (f"<p>Period: {data['period']['from'] or 'start'} to "
+                  f"{data['period']['to'] or 'today'}</p>")
+    html = f"""
+    <h2>Statement of Account — {frappe.utils.escape_html(p.ledger_name)}</h2>
+    <p>SN Jain Industries Pvt. Ltd.</p>{period}
+    <table border="1" cellspacing="0" cellpadding="6"
+           style="border-collapse:collapse; width:100%; font-size:12px;">
+      <tr><th>Date</th><th>Particulars</th><th>Debit</th><th>Credit</th>
+          <th>Balance</th></tr>
+      <tr><td></td><td>Opening</td><td></td><td></td>
+          <td style='text-align:right'>{data['opening']}</td></tr>
+      {rows_html}
+    </table>
+    <p style="text-align:right; font-weight:bold;">
+      Closing balance: {data['closing']}</p>
+    """
+    from frappe.utils.pdf import get_pdf
+    frappe.local.response.filename = "SNJ-statement.pdf"
+    frappe.local.response.filecontent = get_pdf(html)
+    frappe.local.response.type = "download"
+
+
+@frappe.whitelist(methods=["GET"])
+def get_business_summary():
+    """
+    The caller's own business with SNJ this financial year, month by month.
+
+    Only their figures, from their mirrored bills and receipts — nothing
+    about anyone else, nothing firm-wide.
+    """
+    p = _party()
+    today = getdate()
+    fy_start = getdate(f"{today.year if today.month >= 4 else today.year - 1}-04-01")
+
+    billed = frappe.db.sql(
+        """
+        SELECT DATE_FORMAT(voucher_date, '%%Y-%%m') AS month,
+               SUM(amount) AS billed, COUNT(*) AS bills
+        FROM `tabTally Invoice`
+        WHERE company = %(company)s AND party = %(party)s
+          AND is_cancelled = 0 AND is_optional = 0
+          AND voucher_date >= %(fy)s
+        GROUP BY month ORDER BY month
+        """,
+        {"company": p.company, "party": p.ledger_name, "fy": fy_start},
+        as_dict=True)
+    paid = frappe.db.sql(
+        """
+        SELECT DATE_FORMAT(voucher_date, '%%Y-%%m') AS month,
+               SUM(amount) AS paid
+        FROM `tabTally Receipt`
+        WHERE company = %(company)s AND party = %(party)s
+          AND is_cancelled = 0 AND voucher_date >= %(fy)s
+        GROUP BY month ORDER BY month
+        """,
+        {"company": p.company, "party": p.ledger_name, "fy": fy_start},
+        as_dict=True)
+    paid_by_month = {r.month: flt(r.paid) for r in paid}
+    months = [{
+        "month": r.month,
+        "billed": round(flt(r.billed), 2),
+        "bills": r.bills,
+        "paid": round(paid_by_month.get(r.month, 0.0), 2),
+    } for r in billed]
+    for m in paid_by_month:
+        if not any(x["month"] == m for x in months):
+            months.append({"month": m, "billed": 0.0, "bills": 0,
+                           "paid": round(paid_by_month[m], 2)})
+    months.sort(key=lambda x: x["month"])
+    return {
+        "party": p.ledger_name,
+        "fy_start": str(fy_start),
+        "total_billed": round(sum(m["billed"] for m in months), 2),
+        "total_paid": round(sum(m["paid"] for m in months), 2),
+        "months": months,
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_balance():
+    """
+    One tap: 'I confirm my balance as shown.' Freezes the figure, the date it
+    was true on, who tapped and from where. One confirmation per day at most
+    — a second tap the same day returns the first.
+    """
+    p = _party()
+    as_on = getdate()
+    existing = frappe.db.get_value(
+        "Balance Confirmation",
+        {"party_ledger": p.name, "as_on": as_on}, ["name", "balance"],
+        as_dict=True)
+    if existing:
+        return {"confirmed": False, "name": existing.name,
+                "balance": flt(existing.balance),
+                "note": "Already confirmed today."}
+    doc = frappe.get_doc({
+        "doctype": "Balance Confirmation",
+        "party_ledger": p.name,
+        "party_name": p.ledger_name,
+        "company": p.company,
+        "as_on": as_on,
+        "balance": flt(p.closing_balance),
+        "confirmed_at": now_datetime(),
+        "confirmed_by": frappe.session.user,
+        "ip": frappe.local.request_ip or "",
+    })
+    doc.insert(ignore_permissions=True)
+    _notify_office(f"Balance confirmed by {p.ledger_name}",
+                   "Balance Confirmation", doc.name,
+                   f"₹{flt(p.closing_balance):,.2f} as on {as_on}")
+    frappe.db.commit()
+    return {"confirmed": True, "name": doc.name,
+            "balance": flt(p.closing_balance), "as_on": str(as_on)}
+
+
+@frappe.whitelist(methods=["POST"])
+def reorder(source_order=None, order_key=None):
+    """
+    'Order again' — repeat one of the caller's own past orders.
+
+    Copies items, sizes and quantities from the mirrored order; rates come
+    from the rate history exactly as place_order takes them (a distributor
+    never carries a price forward themselves). Lands in the same review
+    queue with the caller's fresh idempotency key.
+    """
+    p = _party()
+    if not source_order:
+        frappe.throw("`source_order` is required — the order number to repeat.")
+    so = frappe.db.get_value(
+        "Tally Sales Order",
+        {"company": p.company, "party": p.ledger_name,
+         "voucher_number": source_order},
+        ["name"], as_dict=True)
+    if not so:
+        frappe.throw("No such order on this account.", frappe.DoesNotExistError)
+    lines = frappe.get_all(
+        "Tally Sales Order Line",
+        filters={"parent": so.name, "parenttype": "Tally Sales Order"},
+        fields=["item_name", "size_batch", "qty", "unit"],
+        order_by="idx asc", limit_page_length=0)
+    if not lines:
+        frappe.throw("That order has no lines to repeat.")
+    return place_order(payload={
+        "order_key": order_key,
+        "lines": [{"item_name": l.item_name, "size_batch": l.size_batch,
+                   "qty": l.qty, "unit": l.unit} for l in lines],
+    })
+
+
+@frappe.whitelist(methods=["GET"])
+def get_claims():
+    """The caller's damage/shortage claims and where each one stands."""
+    p = _party()
+    rows = frappe.get_all(
+        "Distributor Order Photo",
+        filters={"party_ledger": p.name, "kind": "Claim"},
+        fields=["name", "status", "uploaded_at", "reject_note"],
+        order_by="uploaded_at desc", limit_page_length=50)
+    for r in rows:
+        r["uploaded_at"] = str(r["uploaded_at"] or "")
+        r["stage"] = PHOTO_STAGES.get(r.pop("status"), "Received")
+        r["note"] = r.pop("reject_note") or None
+    return {"count": len(rows), "rows": rows}
 
 
 # ---------------------------------------------------------------------------

@@ -2105,6 +2105,12 @@ def _invoice_fields(row, company, groups):
         "is_cancelled": 1 if row.get("is_cancelled") else 0,
         "is_optional": 1 if row.get("is_optional") else 0,
         "narration": row.get("narration") or "",
+        # Dispatch details from Tally, when the build exports them. Note that
+        # `transport_copy` is deliberately ABSENT here: it is uploaded by the
+        # office on the mirrored doc, and a sync update must never blank it.
+        "dispatched_through": row.get("dispatched_through") or "",
+        "lr_no": row.get("lr_no") or "",
+        "destination": row.get("destination") or "",
         "alter_id": row.get("alter_id") or "",
     }
     lines = [{

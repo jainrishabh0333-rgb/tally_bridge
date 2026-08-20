@@ -28,6 +28,12 @@
   "is_cancelled",
   "is_optional",
   "narration",
+  "sec_dispatch",
+  "dispatched_through",
+  "lr_no",
+  "cb_dispatch",
+  "destination",
+  "transport_copy",
   "sec_lines",
   "lines",
   "sec_meta",
@@ -165,6 +171,38 @@
    "fieldname": "narration",
    "fieldtype": "Small Text",
    "label": "Narration"
+  },
+  {
+   "fieldname": "sec_dispatch",
+   "fieldtype": "Section Break",
+   "label": "Dispatch"
+  },
+  {
+   "fieldname": "dispatched_through",
+   "fieldtype": "Data",
+   "label": "Dispatched Through",
+   "description": "Transporter, from Tally's dispatch details when the voucher carries them."
+  },
+  {
+   "fieldname": "lr_no",
+   "fieldtype": "Data",
+   "label": "LR / Document No",
+   "search_index": 1
+  },
+  {
+   "fieldname": "cb_dispatch",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "destination",
+   "fieldtype": "Data",
+   "label": "Destination"
+  },
+  {
+   "fieldname": "transport_copy",
+   "fieldtype": "Attach",
+   "label": "Transport Copy (LR)",
+   "description": "The LR/bilty as the office uploads it \u2014 photo or PDF. NOT synced from Tally; the sync never touches this field, so uploads survive every re-sync. Distributors download it from the portal."
   },
   {
    "fieldname": "sec_lines",

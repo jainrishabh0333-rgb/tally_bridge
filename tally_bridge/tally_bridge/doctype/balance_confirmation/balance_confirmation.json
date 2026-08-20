@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "party_ledger",
+  "party_name",
+  "company",
+  "cb_bc",
+  "as_on",
+  "balance",
+  "confirmed_at",
+  "confirmed_by",
+  "ip"
+ ],
+ "fields": [
+  {
+   "fieldname": "party_ledger",
+   "fieldtype": "Link",
+   "label": "Party (Tally Ledger)",
+   "options": "Tally Ledger",
+   "reqd": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "party_name",
+   "fieldtype": "Data",
+   "label": "Party",
+   "in_list_view": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_bc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "as_on",
+   "fieldtype": "Date",
+   "label": "Balance As On",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance",
+   "fieldtype": "Currency",
+   "label": "Balance Confirmed",
+   "in_list_view": 1,
+   "read_only": 1,
+   "description": "The ledger balance the distributor saw and confirmed \u2014 frozen at the moment of confirmation, never recomputed."
+  },
+  {
+   "fieldname": "confirmed_at",
+   "fieldtype": "Datetime",
+   "label": "Confirmed At",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "confirmed_by",
+   "fieldtype": "Data",
+   "label": "Confirmed By (login)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ip",
+   "fieldtype": "Data",
+   "label": "From IP",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Balance Confirmation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "confirmed_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "autoname": "Prompt",
+ "title_field": "party_name",
+ "description": "A distributor's one-tap confirmation of their ledger balance \u2014 the figure, the date it was true on, who confirmed and when. Replaces chasing signed balance-confirmation letters.",
+ "search_fields": "party_name"
+}
