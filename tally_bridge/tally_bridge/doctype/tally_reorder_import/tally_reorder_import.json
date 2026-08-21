@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 0,
- "autoname": "format:RO-IMP-{received_on}",
+ "autoname": "hash",
  "creation": "2026-08-21 00:00:00.000000",
  "description": "One Reorder Report export received from Tally's Web-portal export. The raw XML is kept verbatim so a payload is never lost to a parser that did not yet know the report's shape.",
  "doctype": "DocType",
@@ -52,7 +52,10 @@
    "in_list_view": 1,
    "search_index": 1
   },
-  {"fieldname": "cb_imp", "fieldtype": "Column Break"},
+  {
+   "fieldname": "cb_imp",
+   "fieldtype": "Column Break"
+  },
   {
    "fieldname": "row_count",
    "fieldtype": "Int",
@@ -69,14 +72,21 @@
    "fieldtype": "Data",
    "label": "Source IP"
   },
-  {"fieldname": "sec_error", "fieldtype": "Section Break"},
+  {
+   "fieldname": "sec_error",
+   "fieldtype": "Section Break"
+  },
   {
    "fieldname": "error",
    "fieldtype": "Small Text",
    "label": "Parse Error",
    "read_only": 1
   },
-  {"fieldname": "sec_raw", "fieldtype": "Section Break", "label": "Raw Payload"},
+  {
+   "fieldname": "sec_raw",
+   "fieldtype": "Section Break",
+   "label": "Raw Payload"
+  },
   {
    "fieldname": "raw_xml",
    "fieldtype": "Long Text",
@@ -109,5 +119,6 @@
  "sort_field": "received_on",
  "sort_order": "DESC",
  "states": [],
- "track_changes": 0
+ "track_changes": 0,
+ "title_field": "group_name"
 }
