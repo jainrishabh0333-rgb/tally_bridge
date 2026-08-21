@@ -26,9 +26,13 @@ Design rules, in order of importance:
      machine on the internet: size-capped, parsed with entity expansion off,
      and only ever stored — never evaluated.
 
-Setup (once):
+Setup (once) — either one works:
 
-    bench --site <site> set-config tally_reorder_token "<64-char random>"
+    * Desk > Tally Reorder Settings > Import Token, or
+    * bench --site <site> set-config tally_reorder_token "<64-char random>"
+
+The Settings doctype exists because Frappe Cloud's Site Config dialog will not
+always accept a custom key. Generate the value with `openssl rand -hex 32`.
 
 Then in Tally: Export Settings > Export to: Web portal, URL:
 
@@ -318,6 +322,30 @@ def _store_levels(rows: list[dict], import_name: str) -> None:
 # Guards
 # ---------------------------------------------------------------------------
 
+def _expected_token() -> str:
+    """
+    The shared secret, from site config or from Tally Reorder Settings.
+
+    Site config is checked first because it is the more locked-down of the
+    two — but Frappe Cloud's Site Config dialog will not always accept a
+    custom key, so the Settings single doctype is a first-class alternative
+    rather than a fallback. Either one configures the endpoint; neither being
+    set leaves it refusing everything.
+    """
+    from_conf = frappe.conf.get("tally_reorder_token") or ""
+    if from_conf:
+        return str(from_conf)
+    try:
+        settings = frappe.get_single("Tally Reorder Settings")
+    except Exception:
+        return ""
+    if not settings.get("enabled"):
+        # Explicitly switched off: report as unconfigured, so the caller gets
+        # the same refusal as a site that never set a token.
+        return ""
+    return str(settings.get_password("import_token", raise_exception=False) or "")
+
+
 def _authenticate(token: str | None) -> None:
     """
     Shared-secret check, constant-time, failing closed when unconfigured.
@@ -325,12 +353,13 @@ def _authenticate(token: str | None) -> None:
     The token may also travel as an X-Tally-Token header, which keeps it out
     of web-server access logs when the exporter can set headers.
     """
-    expected = frappe.conf.get("tally_reorder_token") or ""
+    expected = _expected_token()
     if not expected:
         # An unset secret must never read as "no check required".
         frappe.throw(
-            "Reorder import is not configured: set `tally_reorder_token` in "
-            "site config before using this endpoint.", frappe.PermissionError)
+            "Reorder import is not configured: set the Import Token in Tally "
+            "Reorder Settings (or `tally_reorder_token` in site config) "
+            "before using this endpoint.", frappe.PermissionError)
     supplied = token or frappe.get_request_header("X-Tally-Token") or ""
     if not hmac.compare_digest(str(supplied), str(expected)):
         frappe.throw("Invalid token", frappe.PermissionError)

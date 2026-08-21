@@ -1,0 +1,62 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-21 00:00:00.000000",
+ "description": "Where the Reorder Report receiver gets its shared secret. Exists because Frappe Cloud's Site Config dialog will not always accept a custom key — this is editable from Desk by a System Manager instead.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "import_token",
+  "sec_help",
+  "help_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Accept Reorder Report Imports",
+   "default": "1",
+   "description": "Untick to stop accepting exports without changing the token."
+  },
+  {
+   "fieldname": "import_token",
+   "fieldtype": "Password",
+   "label": "Import Token",
+   "description": "Shared secret Tally must send. Generate with: openssl rand -hex 32. Anyone holding this can post reorder data to the site, so treat it as a password and change it if it leaks."
+  },
+  {"fieldname": "sec_help", "fieldtype": "Section Break", "label": "How To Use"},
+  {
+   "fieldname": "help_html",
+   "fieldtype": "HTML",
+   "options": "<p>In TallyPrime, open the Reorder Report, press <b>E: Export</b> and set <b>Export to: Web portal</b>, <b>File Format: XML (Data Interchange)</b>, <b>Secure Server: Yes</b>, with this URL:</p><pre>https://&lt;your-site&gt;/api/method/tally_bridge.reorder_import.receive?token=&lt;the token above&gt;</pre><p>Each export is stored under <b>Tally Reorder Import</b> with its raw XML kept verbatim, and the levels land in <b>Tally Reorder Level</b>. A payload that fails to parse is still stored, so nothing is lost — it can be re-read later.</p>"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Reorder Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
