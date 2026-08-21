@@ -36,7 +36,8 @@ import json
 from typing import Any
 
 import frappe
-from frappe.utils import flt, getdate, now_datetime, add_days, add_to_date
+from frappe.utils import (flt, get_datetime, getdate, now_datetime, add_days,
+                          add_to_date)
 
 # Groups treated as receivable / payable, matched against a ledger's RESOLVED
 # root group rather than its immediate parent.
@@ -50,6 +51,14 @@ RECEIVABLE_GROUPS = ("Sundry Debtors",)
 PAYABLE_GROUPS = ("Sundry Creditors",)
 
 MAX_ROWS = 2000  # hard cap so a bad query can never dump the whole ledger set
+
+# The agent syncs every 15 minutes, so anything past a couple of hours means
+# roughly eight consecutive runs produced nothing. The old threshold was 24
+# HOURS — 96 missed runs — which is how a dead scheduled task twice went a
+# full day unnoticed while sync_health cheerfully reported is_fresh: true.
+# Kept above one hour so a slow run, a reboot or a busy-Tally spell does not
+# raise a false alarm.
+STALE_AFTER_HOURS = 2
 
 # Order vouchers are commitments, not postings: in Tally a Sales/Purchase
 # Order carries a party and an amount but writes NOTHING to any ledger.
@@ -1607,10 +1616,28 @@ def sync_health():
         "Tally Sync Log", {}, ["name", "status", "sync_time", "vouchers_synced", "detail"],
         order_by="creation desc", as_dict=True,
     )
+    # Freshness is measured from the last SUCCESS, never from the last row.
+    # A task that fails every 15 minutes writes a recent row each time, so
+    # keying off `last_log` would report a mirror as fresh while it sat days
+    # behind. `state["last_successful_sync"]` already filters status=Success.
+    last_success = state.get("last_successful_sync")
+    if isinstance(last_success, str):
+        last_success = get_datetime(last_success) if last_success else None
+
     stale_hours = None
+    if last_success:
+        stale_hours = round(
+            (now_datetime() - last_success).total_seconds() / 3600, 1)
+
+    # Time since the last ATTEMPT of any status. Read together with
+    # stale_hours this separates the two failure modes: attempts recent but
+    # stale_hours large means the task runs and Tally rejects it; BOTH large
+    # means the task is not running at all and no error will ever be logged
+    # — the silent death that leaves no trace anywhere.
+    attempt_hours = None
     if last_log and last_log.get("sync_time"):
-        delta = now_datetime() - last_log["sync_time"]
-        stale_hours = round(delta.total_seconds() / 3600, 1)
+        attempt_hours = round(
+            (now_datetime() - last_log["sync_time"]).total_seconds() / 3600, 1)
 
     recent_failures = frappe.db.count(
         "Tally Sync Log",
@@ -1622,9 +1649,29 @@ def sync_health():
         "last_sync_status": last_log.get("status") if last_log else None,
         "last_sync_time": str(last_log.get("sync_time")) if last_log else None,
         "hours_since_last_sync": stale_hours,
+        "hours_since_last_attempt": attempt_hours,
         "failures_last_24h": recent_failures,
-        "is_fresh": stale_hours is not None and stale_hours < 24,
+        "is_fresh": stale_hours is not None and stale_hours < STALE_AFTER_HOURS,
+        "stale_after_hours": STALE_AFTER_HOURS,
+        "diagnosis": _freshness_diagnosis(stale_hours, attempt_hours),
     }
+
+
+def _freshness_diagnosis(stale_hours, attempt_hours):
+    """One line naming WHICH way the sync is broken, or None if it is fine."""
+    if stale_hours is None:
+        return "No successful sync has ever been recorded."
+    if stale_hours < STALE_AFTER_HOURS:
+        return None
+    if attempt_hours is not None and attempt_hours < STALE_AFTER_HOURS:
+        return (f"The agent is running but not succeeding: last attempt "
+                f"{attempt_hours}h ago, last SUCCESS {stale_hours}h ago. "
+                f"Call recent_failures for the error.")
+    return (f"The agent has not run at all for {attempt_hours}h — no success "
+            f"and no failure logged. A scheduled task that dies before its "
+            f"logging starts leaves no trace here, so check the task on the "
+            f"Tally server itself; do not read the empty failure list as "
+            f"health.")
 
 
 def check_sync_freshness():
@@ -1632,7 +1679,7 @@ def check_sync_freshness():
     health = sync_health()
     if not health.get("is_fresh"):
         frappe.log_error(
-            title="Tally sync is stale",
+            title=f"Tally sync is stale — {health.get('diagnosis') or ''}"[:140],
             message=json.dumps(health, indent=2, default=str),
         )
 
