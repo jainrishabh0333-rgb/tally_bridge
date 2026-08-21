@@ -1,0 +1,113 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:RO-IMP-{received_on}",
+ "creation": "2026-08-21 00:00:00.000000",
+ "description": "One Reorder Report export received from Tally's Web-portal export. The raw XML is kept verbatim so a payload is never lost to a parser that did not yet know the report's shape.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "received_on",
+  "company",
+  "group_name",
+  "status",
+  "cb_imp",
+  "row_count",
+  "byte_size",
+  "source_ip",
+  "sec_error",
+  "error",
+  "sec_raw",
+  "raw_xml"
+ ],
+ "fields": [
+  {
+   "fieldname": "received_on",
+   "fieldtype": "Datetime",
+   "label": "Received On",
+   "in_list_view": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "group_name",
+   "fieldtype": "Data",
+   "label": "Stock Group",
+   "in_list_view": 1,
+   "description": "The report runs per group (Panty, Bra, ...). Blank when the export did not name one."
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Received\nParsed\nParse Failed",
+   "default": "Received",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {"fieldname": "cb_imp", "fieldtype": "Column Break"},
+  {
+   "fieldname": "row_count",
+   "fieldtype": "Int",
+   "label": "Rows Parsed",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "byte_size",
+   "fieldtype": "Int",
+   "label": "Payload Bytes"
+  },
+  {
+   "fieldname": "source_ip",
+   "fieldtype": "Data",
+   "label": "Source IP"
+  },
+  {"fieldname": "sec_error", "fieldtype": "Section Break"},
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Parse Error",
+   "read_only": 1
+  },
+  {"fieldname": "sec_raw", "fieldtype": "Section Break", "label": "Raw Payload"},
+  {
+   "fieldname": "raw_xml",
+   "fieldtype": "Long Text",
+   "label": "Raw XML",
+   "read_only": 1,
+   "description": "Exactly what Tally sent. Never edited, so a better parser can be re-run over it later."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Reorder Import",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "received_on",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

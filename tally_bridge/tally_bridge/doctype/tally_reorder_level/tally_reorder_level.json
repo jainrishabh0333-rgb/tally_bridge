@@ -1,0 +1,121 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "Prompt",
+ "creation": "2026-08-21 00:00:00.000000",
+ "description": "Reorder level per item and size, as maintained in Tally's custom Reorder Report. A management decision, not a measurement — it changes when someone revises it, which is why it is cached here while the other columns are recomputed live.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_name",
+  "size",
+  "company",
+  "stock_group",
+  "cb_lvl",
+  "reorder_level",
+  "unit",
+  "as_of",
+  "source_import",
+  "sec_snap",
+  "in_stock",
+  "unpack_qty",
+  "stitching",
+  "cb_snap",
+  "pending_order",
+  "deficit"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item",
+   "in_list_view": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "size",
+   "fieldtype": "Data",
+   "label": "Size",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {"fieldname": "company", "fieldtype": "Data", "label": "Company"},
+  {
+   "fieldname": "stock_group",
+   "fieldtype": "Data",
+   "label": "Stock Group",
+   "in_list_view": 1
+  },
+  {"fieldname": "cb_lvl", "fieldtype": "Column Break"},
+  {
+   "fieldname": "reorder_level",
+   "fieldtype": "Float",
+   "label": "Reorder Level",
+   "in_list_view": 1,
+   "precision": "2"
+  },
+  {"fieldname": "unit", "fieldtype": "Data", "label": "Unit"},
+  {
+   "fieldname": "as_of",
+   "fieldtype": "Datetime",
+   "label": "As Of",
+   "description": "When this level was exported from Tally."
+  },
+  {
+   "fieldname": "source_import",
+   "fieldtype": "Link",
+   "options": "Tally Reorder Import",
+   "label": "Source Import"
+  },
+  {
+   "fieldname": "sec_snap",
+   "fieldtype": "Section Break",
+   "label": "Report Snapshot",
+   "description": "The other columns AS THE REPORT SHOWED THEM at export time. Not used for decisions — those come from live Tally data — but kept so validate_against_report() can check the rebuilt figures against the real thing."
+  },
+  {"fieldname": "in_stock", "fieldtype": "Float", "label": "In Stock (reported)", "precision": "2"},
+  {"fieldname": "unpack_qty", "fieldtype": "Float", "label": "Unpack Qty (reported)", "precision": "2"},
+  {"fieldname": "stitching", "fieldtype": "Float", "label": "Stitching (reported)", "precision": "2"},
+  {"fieldname": "cb_snap", "fieldtype": "Column Break"},
+  {"fieldname": "pending_order", "fieldtype": "Float", "label": "Pending Order (reported)", "precision": "2"},
+  {"fieldname": "deficit", "fieldtype": "Float", "label": "Deficit/Surplus (reported)", "precision": "2"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Tally Reorder Level",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "search_fields": "item_name,size",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "item_name",
+ "track_changes": 0
+}
