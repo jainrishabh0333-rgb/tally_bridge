@@ -5,10 +5,11 @@ The parser is pure (XML string in, dicts out), so it is exercised without a
 site. Expected numbers come from the real Reorder Report (Panty group,
 2026-08-20), including Tally's '(-)7.50' rendering of a negative.
 
-The report's XML shape has never been observed — Tally names tags after its
-TDL variables (ROITEMGRPNAME / ROARTICLENAMEN / ROSIZECOLORSIZENAME), not
-after the visible column headers. These tests therefore pin the BEHAVIOUR the
-parser must keep across shapes rather than one blessed layout.
+The live shape is now known (see TestRealReportShape): a FLAT field stream
+with no row wrapper, SERNO marking each row, and truncated tag names —
+SRPENDINGORD, SROREORDLBL, SRODEFSURP. The other shapes are kept because the
+parser must stay tolerant: this report is custom TDL and its tags can change
+without warning.
 """
 
 import unittest
@@ -129,3 +130,56 @@ class TestParseReorderXml(unittest.TestCase):
         payload = """<E><D><R><SNO>1</SNO><REORDERLEVEL>10</REORDERLEVEL></R>
                      <R><SNO>2</SNO><REORDERLEVEL>20</REORDERLEVEL></R></D></E>"""
         self.assertEqual(parse_reorder_xml(payload), [])
+
+
+REAL_FLAT = """<ENVELOPE> <SERNO>1</SERNO> <SROITEMNAME>1228 INNER 3XL-(Doz)</SROITEMNAME>
+ <SROITEMGRP>Panty</SROITEMGRP> <SROSIZE>42</SROSIZE> <SROINSTOCK></SROINSTOCK>
+ <SRUNPACKQTY></SRUNPACKQTY> <SROSTITCHING></SROSTITCHING> <SRPENDINGORD></SRPENDINGORD>
+ <SROREORDLBL>7.50</SROREORDLBL> <SRODEFSURP>-7.50</SRODEFSURP>
+ <SERNO>2</SERNO> <SROITEMNAME>1326 CL S-XL-(Doz)</SROITEMNAME> <SROITEMGRP>Panty</SROITEMGRP>
+ <SROSIZE>34</SROSIZE> <SROINSTOCK>13</SROINSTOCK> <SRUNPACKQTY></SRUNPACKQTY>
+ <SROSTITCHING>179</SROSTITCHING> <SRPENDINGORD>18</SRPENDINGORD>
+ <SROREORDLBL>75</SROREORDLBL> <SRODEFSURP>99</SRODEFSURP>
+ <SERNO>3</SERNO> <SROITEMNAME>2002 S-XL-(Doz)</SROITEMNAME> <SROITEMGRP>Panty</SROITEMGRP>
+ <SROSIZE>36</SROSIZE> <SROINSTOCK>6</SROINSTOCK> <SRUNPACKQTY>57.25</SRUNPACKQTY>
+ <SROSTITCHING>176</SROSTITCHING> <SRPENDINGORD>75</SRPENDINGORD>
+ <SROREORDLBL>240</SROREORDLBL> <SRODEFSURP>-75.75</SRODEFSURP>
+</ENVELOPE>"""
+
+
+class TestRealReportShape(unittest.TestCase):
+    """
+    The shape the live report actually sends: a FLAT field stream with no row
+    wrapper, rows delimited by SERNO. Transcribed from a real Panty export
+    (2026-08-21).
+
+    Read as nested, this yields exactly as many rows, each holding only an
+    item name — which is what shipped 475 rows of zeroes the first time. Hence
+    the field-count scoring in parse_reorder_xml.
+    """
+
+    def test_row_count_and_sizes(self):
+        rows = parse_reorder_xml(REAL_FLAT)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([r["size"] for r in rows], ["42", "34", "36"])
+
+    def test_truncated_tag_names(self):
+        """SRPENDINGORD, SROREORDLBL and SRODEFSURP are all truncated."""
+        rows = parse_reorder_xml(REAL_FLAT)
+        self.assertEqual(rows[1]["pending_order"], 18.0)
+        self.assertEqual(rows[1]["reorder_level"], 75.0)
+        self.assertEqual(rows[2]["deficit"], -75.75)
+
+    def test_blank_columns_do_not_shift_fields(self):
+        """Empty tags must not slide the next value into the wrong column."""
+        rows = parse_reorder_xml(REAL_FLAT)
+        self.assertEqual(rows[0]["reorder_level"], 7.5)
+        self.assertEqual(rows[0]["deficit"], -7.5)
+        self.assertNotIn("in_stock", rows[0])
+
+    def test_formula_holds(self):
+        for row in parse_reorder_xml(REAL_FLAT):
+            calc = (row.get("in_stock", 0) + row.get("unpack_qty", 0)
+                    + row.get("stitching", 0) - row.get("pending_order", 0)
+                    - row.get("reorder_level", 0))
+            self.assertAlmostEqual(calc, row["deficit"], places=2)

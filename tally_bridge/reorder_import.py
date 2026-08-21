@@ -17,9 +17,10 @@ is derived continuously.
 Design rules, in order of importance:
 
   1. NEVER LOSE A PAYLOAD. The raw XML is written verbatim before anything is
-     parsed, and a parse failure still returns success to Tally. We have never
-     seen this report's XML shape, so the parser is a best guess; the raw copy
-     is what makes a second attempt possible. Re-run with reparse_import().
+     parsed, and a parse failure still returns success to Tally. This earned
+     its keep immediately: the first real export parsed to 475 rows of zeroes
+     because the shape was nothing like the guess, and the stored copy is what
+     made the fix possible without re-exporting. Re-run with reparse_import().
   2. Fail closed on auth. The shared secret must be configured or the endpoint
      refuses every request — an unset secret must never mean "open".
   3. Treat the body as hostile. It arrives unauthenticated-by-Frappe from a
@@ -70,11 +71,20 @@ MAX_POSTS_PER_HOUR = 60
 # must win or every row's group would be read as its item name. Likewise
 # "stockgroup" contains "stock", and "reorderlevel" contains "order".
 _FIELD_RULES = [
+    # Observed live 2026-08-21, Panty export: SROITEMNAME / SROITEMGRP /
+    # SROSIZE / SROINSTOCK / SRUNPACKQTY / SROSTITCHING / SRPENDINGORD /
+    # SROREORDLBL / SRODEFSURP, with SERNO marking each row.
     ("reorderlevel", "reorder_level"),
+    ("reordlbl", "reorder_level"),      # SROREORDLBL — "lbl", not "level"
+    ("reord", "reorder_level"),
     ("deficit", "deficit"),
+    ("defsurp", "deficit"),             # SRODEFSURP — truncated both halves
     ("surplus", "deficit"),
+    ("surp", "deficit"),
     ("pendingorder", "pending_order"),
+    ("pendingord", "pending_order"),    # SRPENDINGORD — truncated
     ("pendingqty", "pending_order"),
+    ("pending", "pending_order"),
     ("grp", "stock_group"),
     ("group", "stock_group"),
     ("unpack", "unpack_qty"),
@@ -88,6 +98,9 @@ _FIELD_RULES = [
     ("item", "item_name"),
     ("level", "reorder_level"),
 ]
+
+# Tags that mark the START of a row rather than carrying a value.
+_SERIAL_TAGS = {"serno", "sno", "srno", "slno", "serialno", "sr", "srlno"}
 
 _NUMERIC = {"in_stock", "unpack_qty", "stitching", "pending_order",
             "reorder_level", "deficit"}
@@ -178,34 +191,97 @@ def parse_reorder_xml(raw: str) -> list[dict]:
     """
     Pull reorder rows out of whatever Tally sent.
 
-    The report's XML shape is unknown, so this does not hard-code a path. It
-    finds the repeating element that looks most like a data row — one carrying
-    a recognisable ITEM and REORDER LEVEL — and reads every child of it. That
-    survives Tally naming the wrapper anything at all.
+    Two shapes are handled, because this report uses the awkward one:
 
-    Pure function: XML string in, dicts out, no database. Testable offline
-    against a saved payload.
+      FLAT (what the live report actually sends) — no row wrapper at all.
+      Every field is a sibling under <ENVELOPE>, with <SERNO> marking where
+      each row begins:
+
+          <SERNO>1</SERNO><SROITEMNAME>..</SROITEMNAME><SROSIZE>42</SROSIZE>..
+          <SERNO>2</SERNO><SROITEMNAME>..</SROITEMNAME>..
+
+      NESTED — each row is its own element. Common in Tally exports generally,
+      just not in this one.
+
+    Both are attempted and the better result wins, scored by how many FIELDS
+    were extracted rather than how many rows. Row count alone would be fooled:
+    reading the flat shape as nested yields exactly as many rows, each holding
+    only an item name, and that near-miss is precisely what shipped empty
+    numbers the first time.
     """
     if not raw.strip():
         return []
     root = _safe_parse(raw)
 
+    flat = _parse_flat(root)
+    nested = _parse_nested(root)
+    return flat if _score(flat) >= _score(nested) else nested
+
+
+def _score(rows: list[dict]) -> int:
+    """Total fields extracted — a row carrying only a name is nearly worthless."""
+    return sum(len(r) for r in rows)
+
+
+def _parse_flat(root) -> list[dict]:
+    """
+    Read a flat field stream into rows.
+
+    A row ends when a serial tag appears, or when a field repeats that the
+    current row already holds — the second rule means a missing or renamed
+    SERNO cannot merge two rows into one.
+    """
+    # The element carrying the most leaf children is the data container.
+    best_parent, best_leaves = None, 0
+    for el in root.iter():
+        leaves = sum(1 for c in el if not len(c))
+        if leaves > best_leaves:
+            best_parent, best_leaves = el, leaves
+    if best_parent is None:
+        return []
+
+    rows: list[dict] = []
+    cur: dict = {}
+    for leaf in best_parent:
+        if len(leaf):
+            continue
+        key = _norm(leaf.tag)
+        if key in _SERIAL_TAGS:
+            if cur:
+                rows.append(cur)
+                cur = {}
+            continue
+        field = _field_for(leaf.tag)
+        if not field:
+            continue
+        if field in cur:
+            rows.append(cur)
+            cur = {}
+        text = (leaf.text or "").strip()
+        if not text:
+            continue
+        cur[field] = _number(text) if field in _NUMERIC else text
+    if cur:
+        rows.append(cur)
+    return [r for r in rows if r.get("item_name")]
+
+
+def _parse_nested(root) -> list[dict]:
+    """Read the shape where each row is its own element."""
     best: list[dict] = []
     for parent in root.iter():
-        children = list(parent)
-        if len(children) < 2:
-            continue
-        # Candidate rows are this parent's children that share a tag and carry
-        # mappable leaf fields.
         by_tag: dict[str, list] = {}
-        for c in children:
-            by_tag.setdefault(c.tag, []).append(c)
-        for tag, group in by_tag.items():
+        for c in parent:
+            # Only an element with children can be a row; a bare leaf is a
+            # field, and treating it as a row is the bug this guards against.
+            if len(c):
+                by_tag.setdefault(c.tag, []).append(c)
+        for _tag, group in by_tag.items():
             if len(group) < 2:
                 continue
             rows = [_row_from(el) for el in group]
             rows = [r for r in rows if r.get("item_name")]
-            if len(rows) > len(best):
+            if _score(rows) > _score(best):
                 best = rows
     return best
 
