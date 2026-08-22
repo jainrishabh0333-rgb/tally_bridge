@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:as_of",
+ "creation": "2026-08-22 00:00:00.000000",
+ "description": "One day's dispatch-readiness report, as produced by the sync agent's pending_readiness.py. Holds the browsable page verbatim plus the structured report behind it. INTERNAL: names parties, order numbers and shortfalls, so it is desk-only and must never be exposed to the portal.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "as_of",
+  "window_from",
+  "generated_on",
+  "cb_head",
+  "order_count",
+  "coverage_pct",
+  "blocking_items",
+  "unsighted_items",
+  "sec_body",
+  "page_html",
+  "payload_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "as_of",
+   "fieldtype": "Date",
+   "label": "As At",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "description": "The report date. It is also the record name, so re-uploading a day replaces it rather than piling up duplicates."
+  },
+  {"fieldname": "window_from", "fieldtype": "Date", "label": "Orders From"},
+  {
+   "fieldname": "generated_on",
+   "fieldtype": "Datetime",
+   "label": "Generated On",
+   "description": "When the agent ran, which is not the same as when it was uploaded."
+  },
+  {"fieldname": "cb_head", "fieldtype": "Column Break"},
+  {"fieldname": "order_count", "fieldtype": "Int", "label": "Pending Orders", "in_list_view": 1},
+  {
+   "fieldname": "coverage_pct",
+   "fieldtype": "Float",
+   "label": "Dispatchable %",
+   "precision": "1",
+   "in_list_view": 1,
+   "description": "Share of measurable pending demand coverable from stock on hand."
+  },
+  {"fieldname": "blocking_items", "fieldtype": "Int", "label": "Items Blocking Dispatch"},
+  {"fieldname": "unsighted_items", "fieldtype": "Int", "label": "Items With No Stock Sighting"},
+  {
+   "fieldname": "sec_body",
+   "fieldtype": "Section Break",
+   "label": "Payload",
+   "description": "Stored twice on purpose: the page is what the desk shows, and the structured report is what any later re-render or comparison reads. Neither is edited by hand."
+  },
+  {
+   "fieldname": "page_html",
+   "fieldtype": "Long Text",
+   "label": "Page HTML",
+   "read_only": 1,
+   "description": "The self-contained report page. Rendered inside a sandboxed frame on the Dispatch Readiness desk page, never injected into the desk itself."
+  },
+  {
+   "fieldname": "payload_json",
+   "fieldtype": "Long Text",
+   "label": "Report JSON",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tally Bridge",
+ "name": "Dispatch Readiness Snapshot",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1, "write": 1, "create": 1, "delete": 1,
+   "report": 1, "print": 1, "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1, "report": 1, "print": 1
+  }
+ ],
+ "sort_field": "as_of",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "as_of",
+ "track_changes": 0
+}
