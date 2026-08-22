@@ -30,15 +30,27 @@
    "in_list_view": 1,
    "description": "The report date. It is also the record name, so re-uploading a day replaces it rather than piling up duplicates."
   },
-  {"fieldname": "window_from", "fieldtype": "Date", "label": "Orders From"},
+  {
+   "fieldname": "window_from",
+   "fieldtype": "Date",
+   "label": "Orders From"
+  },
   {
    "fieldname": "generated_on",
    "fieldtype": "Datetime",
    "label": "Generated On",
    "description": "When the agent ran, which is not the same as when it was uploaded."
   },
-  {"fieldname": "cb_head", "fieldtype": "Column Break"},
-  {"fieldname": "order_count", "fieldtype": "Int", "label": "Pending Orders", "in_list_view": 1},
+  {
+   "fieldname": "cb_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "order_count",
+   "fieldtype": "Int",
+   "label": "Pending Orders",
+   "in_list_view": 1
+  },
   {
    "fieldname": "coverage_pct",
    "fieldtype": "Float",
@@ -47,8 +59,16 @@
    "in_list_view": 1,
    "description": "Share of measurable pending demand coverable from stock on hand."
   },
-  {"fieldname": "blocking_items", "fieldtype": "Int", "label": "Items Blocking Dispatch"},
-  {"fieldname": "unsighted_items", "fieldtype": "Int", "label": "Items With No Stock Sighting"},
+  {
+   "fieldname": "blocking_items",
+   "fieldtype": "Int",
+   "label": "Items Blocking Dispatch"
+  },
+  {
+   "fieldname": "unsighted_items",
+   "fieldtype": "Int",
+   "label": "Items With No Stock Sighting"
+  },
   {
    "fieldname": "sec_body",
    "fieldtype": "Section Break",
@@ -79,12 +99,25 @@
  "permissions": [
   {
    "role": "System Manager",
-   "read": 1, "write": 1, "create": 1, "delete": 1,
-   "report": 1, "print": 1, "share": 1
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "print": 1,
+   "share": 1
   },
   {
    "role": "Accounts User",
-   "read": 1, "report": 1, "print": 1
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Dispatch Readiness Publisher",
+   "read": 1,
+   "write": 1,
+   "create": 1
   }
  ],
  "sort_field": "as_of",
