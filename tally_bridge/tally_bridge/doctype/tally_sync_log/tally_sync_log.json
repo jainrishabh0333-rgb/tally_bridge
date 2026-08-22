@@ -43,7 +43,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Success\nFailed\nPartial",
+   "options": "Success\nFailed\nPartial\nSkipped",
    "read_only": 1
   },
   {

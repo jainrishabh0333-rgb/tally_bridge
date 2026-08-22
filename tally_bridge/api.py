@@ -667,7 +667,8 @@ def log_sync(status=None, detail=None):
         "doctype": "Tally Sync Log",
         "sync_time": now_datetime(),
         "company": detail.get("company") or "",
-        "status": status if status in ("Success", "Failed", "Partial") else "Partial",
+        "status": (status if status in ("Success", "Failed", "Partial", "Skipped")
+                   else "Partial"),
         "ledgers_synced": int(detail.get("ledgers") or 0),
         "vouchers_synced": int(detail.get("vouchers") or 0),
         "date_range": detail.get("range") or "",
@@ -1569,24 +1570,33 @@ def unbalanced_vouchers(from_date=None, to_date=None, tolerance=0.01, limit=100,
 
 
 @frappe.whitelist(methods=["GET"])
-def recent_failures(limit=5):
+def recent_failures(limit=5, include_skipped=0):
     """
     The last few failed sync runs, with the error each reported.
 
     Exists so a diagnosis does not require the write-capable key: when a sync
     fails, the read-only side can see WHY without escalating privileges.
+
+    Skipped runs — Tally simply not running — are excluded by default. They
+    are the normal state outside working hours on this hosted box, and
+    including them buried the real failures at a rate of ~340 rows a week.
+    Pass include_skipped=1 to see them when the question is "why has the
+    mirror stopped advancing" rather than "what broke".
     """
     _require_reader()
+    statuses = ["Failed", "Partial"]
+    if int(include_skipped or 0):
+        statuses.append("Skipped")
     rows = frappe.db.sql(
         """
         SELECT name, sync_time, company, status, ledgers_synced,
                vouchers_synced, date_range, detail
         FROM `tabTally Sync Log`
-        WHERE status IN ('Failed', 'Partial')
+        WHERE status IN %(statuses)s
         ORDER BY sync_time DESC
         LIMIT %(limit)s
         """,
-        {"limit": _limit(limit, 5)}, as_dict=True,
+        {"statuses": statuses, "limit": _limit(limit, 5)}, as_dict=True,
     )
     out = []
     for r in rows:
@@ -1639,30 +1649,48 @@ def sync_health():
         attempt_hours = round(
             (now_datetime() - last_log["sync_time"]).total_seconds() / 3600, 1)
 
+    day_ago = add_days(now_datetime(), -1)
     recent_failures = frappe.db.count(
-        "Tally Sync Log",
-        {"status": "Failed", "sync_time": [">", add_days(now_datetime(), -1)]},
+        "Tally Sync Log", {"status": "Failed", "sync_time": [">", day_ago]},
     )
+    # Counted apart, never added to failures: a Skipped run means Tally was
+    # not running, which is expected outside working hours and says nothing
+    # about the health of this agent.
+    recent_skipped = frappe.db.count(
+        "Tally Sync Log", {"status": "Skipped", "sync_time": [">", day_ago]},
+    )
+    last_status = last_log.get("status") if last_log else None
 
     return {
         **state,
-        "last_sync_status": last_log.get("status") if last_log else None,
+        "last_sync_status": last_status,
         "last_sync_time": str(last_log.get("sync_time")) if last_log else None,
         "hours_since_last_sync": stale_hours,
         "hours_since_last_attempt": attempt_hours,
         "failures_last_24h": recent_failures,
+        "skipped_last_24h": recent_skipped,
         "is_fresh": stale_hours is not None and stale_hours < STALE_AFTER_HOURS,
         "stale_after_hours": STALE_AFTER_HOURS,
-        "diagnosis": _freshness_diagnosis(stale_hours, attempt_hours),
+        "diagnosis": _freshness_diagnosis(stale_hours, attempt_hours,
+                                          last_status),
     }
 
 
-def _freshness_diagnosis(stale_hours, attempt_hours):
+def _freshness_diagnosis(stale_hours, attempt_hours, last_status=None):
     """One line naming WHICH way the sync is broken, or None if it is fine."""
     if stale_hours is None:
         return "No successful sync has ever been recorded."
     if stale_hours < STALE_AFTER_HOURS:
         return None
+    if last_status == "Skipped":
+        # Distinguished from a real failure on purpose. The fix is on the
+        # server ("open Tally"), not in this agent, and reporting it as a
+        # breakage sent a day into chasing chunk_days and the schedule.
+        return (f"Tally is not running on the server — the agent is trying "
+                f"and finding the port closed. Last SUCCESS {stale_hours}h "
+                f"ago. Figures are correct as at that time; anything entered "
+                f"in Tally since is not mirrored yet. Expected outside "
+                f"working hours.")
     if attempt_hours is not None and attempt_hours < STALE_AFTER_HOURS:
         return (f"The agent is running but not succeeding: last attempt "
                 f"{attempt_hours}h ago, last SUCCESS {stale_hours}h ago. "
